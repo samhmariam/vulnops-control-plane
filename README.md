@@ -7,6 +7,8 @@ VersionConstraint domain models, minimal Asset and InstalledComponent context,
 and evidence-backed VulnerabilityCase snapshots with deterministic lifecycle policy
 and audit events. PostgreSQL stores source snapshots, cases, and append-oriented
 history. It does not yet ingest vulnerabilities, run agents, or remediate assets.
+Conservative product/version matching resolves individual component/product pairs
+as AFFECTED, NOT_AFFECTED, or UNKNOWN with reasons and evidence references.
 
 Use Python 3.12+ and uv. The default local interpreter is Python 3.12.
 
@@ -18,7 +20,8 @@ uv build
 ```
 
 Pydantic v2 validates domain contracts; SQLAlchemy 2, Alembic, and psycopg provide
-PostgreSQL persistence. pytest is a development dependency. Commit `uv.lock` to
+PostgreSQL persistence; packageurl-python parses structured Package URLs.
+pytest is a development dependency. Commit `uv.lock` to
 keep installations reproducible; update it deliberately when changing dependencies.
 
 ## Local PostgreSQL and integration tests
@@ -62,6 +65,7 @@ also enforces transition policy and cannot insert an unauthorised state shortcut
 - `tests/`: automated behaviour and packaging tests.
 - `src/vulnops/workflow/`: lifecycle states, transition policy, and audit events.
 - `src/vulnops/persistence/`: PostgreSQL models, tenant transactions, and repositories.
+- `src/vulnops/matching/`: conservative identity, version, and pair resolution.
 - `alembic/`: reviewed schema and row-level security migrations.
 - `lab/`: isolated future experiments; excluded from the production package.
 - `docs/`: scope, evidence, and architecture.
@@ -84,6 +88,8 @@ The [state machine design](docs/decisions/ADR-006-authoritative-state-machine.md
 defines legal transitions, prerequisites, and the future atomic persistence boundary.
 The [persistence design](docs/decisions/ADR-007-postgres-and-append-audit.md) implements
 that atomic boundary and documents tenant isolation, replay, and audit limitations.
+The [matching design](docs/decisions/ADR-008-conservative-affected-resolution.md)
+defines supported identifiers/version semantics and when a result must stay UNKNOWN.
 
 ## Implementation workflow
 
