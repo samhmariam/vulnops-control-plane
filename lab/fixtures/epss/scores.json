@@ -1,0 +1,18 @@
+{
+  "status": "OK",
+  "model_version": "synthetic-1",
+  "data": [
+    {
+      "cve": "CVE-2099-900001",
+      "epss": "0.8",
+      "percentile": "0.99",
+      "date": "2026-10-24"
+    },
+    {
+      "cve": "CVE-2099-900003",
+      "epss": "0.1",
+      "percentile": "0.7",
+      "date": "2026-10-24"
+    }
+  ]
+}

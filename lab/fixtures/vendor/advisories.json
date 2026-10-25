@@ -1,0 +1,22 @@
+{
+  "advisories": [
+    {
+      "advisory_id": "LAB-001",
+      "cve_id": "CVE-2099-900001",
+      "fixed_version": "2.0.0",
+      "remediation": "Synthetic fixture: upgrade Lab Web to 2.0.0."
+    },
+    {
+      "advisory_id": "LAB-003",
+      "cve_id": "CVE-2099-900003",
+      "fixed_version": null,
+      "remediation": "No fix is known in this synthetic snapshot."
+    },
+    {
+      "advisory_id": "LAB-004",
+      "cve_id": "CVE-2099-900004",
+      "fixed_version": "5.0.0",
+      "remediation": "Synthetic fixture: upgrade Lab Store to 5.0.0."
+    }
+  ]
+}

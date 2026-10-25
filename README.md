@@ -6,7 +6,8 @@ invariants, and validated Evidence, Vulnerability, ProductIdentity, and
 VersionConstraint domain models, minimal Asset and InstalledComponent context,
 and evidence-backed VulnerabilityCase snapshots with deterministic lifecycle policy
 and audit events. PostgreSQL stores source snapshots, cases, and append-oriented
-history. It does not yet ingest vulnerabilities, run agents, or remediate assets.
+history. Offline fixture adapters now ingest synthetic vulnerability and inventory
+snapshots. Live feeds, agents, and remediation execution remain future work.
 Conservative product/version matching resolves individual component/product pairs
 as AFFECTED, NOT_AFFECTED, or UNKNOWN with reasons and evidence references.
 
@@ -67,7 +68,9 @@ also enforces transition policy and cannot insert an unauthorised state shortcut
 - `src/vulnops/persistence/`: PostgreSQL models, tenant transactions, and repositories.
 - `src/vulnops/matching/`: conservative identity, version, and pair resolution.
 - `alembic/`: reviewed schema and row-level security migrations.
-- `lab/`: isolated future experiments; excluded from the production package.
+- `src/vulnops/sources/`: canonical source protocol and offline fixture adapters.
+- `lab/`: six synthetic assets, five vulnerability fixtures, and inert containers;
+  see the [lab guide](lab/README.md). Excluded from the production package.
 - `docs/`: scope, evidence, and architecture.
 - `docs/decisions/`: architectural decision records (ADRs).
 
@@ -90,6 +93,8 @@ The [persistence design](docs/decisions/ADR-007-postgres-and-append-audit.md) im
 that atomic boundary and documents tenant isolation, replay, and audit limitations.
 The [matching design](docs/decisions/ADR-008-conservative-affected-resolution.md)
 defines supported identifiers/version semantics and when a result must stay UNKNOWN.
+The [fixture adapter design](docs/decisions/ADR-009-fixture-first-source-adapters.md)
+defines the offline lab, provenance, replay, and future live-source boundary.
 
 ## Implementation workflow
 

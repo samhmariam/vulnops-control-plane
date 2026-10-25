@@ -1,0 +1,93 @@
+name: vulnops-lab
+services:
+  asset-web-01:
+    image: python:3.12-alpine
+    command: ["python", "-m", "http.server", "8080", "--directory", "/srv"]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes: ["./assets/asset-web-01:/srv:ro"]
+    networks: [lab, web]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports: ["127.0.0.1:18081:8080"]
+  asset-web-02:
+    image: python:3.12-alpine
+    command: ["python", "-m", "http.server", "8080", "--directory", "/srv"]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes: ["./assets/asset-web-02:/srv:ro"]
+    networks: [lab, web]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports: ["127.0.0.1:18082:8080"]
+  asset-api-01:
+    image: python:3.12-alpine
+    command: ["python", "-m", "http.server", "8080", "--directory", "/srv"]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes: ["./assets/asset-api-01:/srv:ro"]
+    networks: [lab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  asset-dev-01:
+    image: python:3.12-alpine
+    command: ["python", "-m", "http.server", "8080", "--directory", "/srv"]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes: ["./assets/asset-dev-01:/srv:ro"]
+    networks: [lab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  asset-db-01:
+    image: python:3.12-alpine
+    command: ["python", "-m", "http.server", "8080", "--directory", "/srv"]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes: ["./assets/asset-db-01:/srv:ro"]
+    networks: [lab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  asset-legacy-01:
+    image: python:3.12-alpine
+    command: ["python", "-m", "http.server", "8080", "--directory", "/srv"]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes: ["./assets/asset-legacy-01:/srv:ro"]
+    networks: [lab]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+networks:
+  lab:
+    internal: true
+  web:
+    driver: bridge

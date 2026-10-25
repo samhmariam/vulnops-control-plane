@@ -1,0 +1,223 @@
+{
+  "schema_version": "vulnops-lab/1",
+  "synthetic": true,
+  "observed_at": "2026-10-25T08:00:00Z",
+  "assets": [
+    {
+      "external_id": "vulnops-lab:asset-web-01",
+      "hostname": "asset-web-01.lab.invalid",
+      "asset_type": "VM",
+      "environment": "PRODUCTION",
+      "business_service": "Synthetic customer portal",
+      "business_criticality": "CRITICAL",
+      "internet_exposed": true,
+      "externally_reachable": true,
+      "data_classification": "INTERNAL",
+      "owner": "lab-platform-team",
+      "components": [
+        {
+          "installation_id": "web",
+          "package": {
+            "name": "vulnops-lab-web",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/vulnops-lab-web",
+            "vendor": "VulnOps Lab",
+            "display_name": "Lab Web"
+          },
+          "version": "1.4.0"
+        },
+        {
+          "installation_id": "common",
+          "package": {
+            "name": "vulnops-lab-common",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/vulnops-lab-common",
+            "vendor": "VulnOps Lab",
+            "display_name": "Lab Common"
+          },
+          "version": "1.0.0"
+        }
+      ]
+    },
+    {
+      "external_id": "vulnops-lab:asset-web-02",
+      "hostname": "asset-web-02.lab.invalid",
+      "asset_type": "CONTAINER",
+      "environment": "PRODUCTION",
+      "business_service": "Synthetic customer portal",
+      "business_criticality": "CRITICAL",
+      "internet_exposed": true,
+      "externally_reachable": true,
+      "data_classification": "INTERNAL",
+      "owner": "lab-platform-team",
+      "components": [
+        {
+          "installation_id": "web",
+          "package": {
+            "name": "vulnops-lab-web",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/vulnops-lab-web",
+            "vendor": "VulnOps Lab",
+            "display_name": "Lab Web"
+          },
+          "version": "2.0.0"
+        },
+        {
+          "installation_id": "common",
+          "package": {
+            "name": "vulnops-lab-common",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/vulnops-lab-common",
+            "vendor": "VulnOps Lab",
+            "display_name": "Lab Common"
+          },
+          "version": "2.0.0"
+        }
+      ]
+    },
+    {
+      "external_id": "vulnops-lab:asset-api-01",
+      "hostname": "asset-api-01.lab.invalid",
+      "asset_type": "APPLICATION",
+      "environment": "PRODUCTION",
+      "business_service": "Synthetic internal service",
+      "business_criticality": "HIGH",
+      "internet_exposed": false,
+      "externally_reachable": false,
+      "data_classification": "INTERNAL",
+      "owner": "lab-platform-team",
+      "components": [
+        {
+          "installation_id": "api",
+          "package": {
+            "name": "vulnops-lab-api",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/vulnops-lab-api",
+            "vendor": "VulnOps Lab",
+            "display_name": "Lab Api"
+          },
+          "version": "3.2.0"
+        },
+        {
+          "installation_id": "common",
+          "package": {
+            "name": "vulnops-lab-common",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/vulnops-lab-common",
+            "vendor": "VulnOps Lab",
+            "display_name": "Lab Common"
+          },
+          "version": "1.0.0"
+        }
+      ]
+    },
+    {
+      "external_id": "vulnops-lab:asset-dev-01",
+      "hostname": "asset-dev-01.lab.invalid",
+      "asset_type": "REPOSITORY",
+      "environment": "DEVELOPMENT",
+      "business_service": "Synthetic internal service",
+      "business_criticality": "LOW",
+      "internet_exposed": false,
+      "externally_reachable": false,
+      "data_classification": "INTERNAL",
+      "owner": "lab-platform-team",
+      "components": [
+        {
+          "installation_id": "web",
+          "package": {
+            "name": "vulnops-lab-web",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/vulnops-lab-web",
+            "vendor": "VulnOps Lab",
+            "display_name": "Lab Web"
+          },
+          "version": "1.4.0"
+        },
+        {
+          "installation_id": "api",
+          "package": {
+            "name": "vulnops-lab-api",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/vulnops-lab-api",
+            "vendor": "VulnOps Lab",
+            "display_name": "Lab Api"
+          },
+          "version": "3.2.0"
+        },
+        {
+          "installation_id": "common",
+          "package": {
+            "name": "vulnops-lab-common",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/vulnops-lab-common",
+            "vendor": "VulnOps Lab",
+            "display_name": "Lab Common"
+          },
+          "version": "1.0.0"
+        }
+      ]
+    },
+    {
+      "external_id": "vulnops-lab:asset-db-01",
+      "hostname": "asset-db-01.lab.invalid",
+      "asset_type": "MANAGED_SERVICE",
+      "environment": "PRODUCTION",
+      "business_service": "Synthetic internal service",
+      "business_criticality": "HIGH",
+      "internet_exposed": false,
+      "externally_reachable": false,
+      "data_classification": "RESTRICTED",
+      "owner": "lab-platform-team",
+      "components": [
+        {
+          "installation_id": "store",
+          "package": {
+            "name": "vulnops-lab-store",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/vulnops-lab-store",
+            "vendor": "VulnOps Lab",
+            "display_name": "Lab Store"
+          },
+          "version": "5.0.0"
+        }
+      ]
+    },
+    {
+      "external_id": "vulnops-lab:asset-legacy-01",
+      "hostname": "asset-legacy-01.lab.invalid",
+      "asset_type": "VM",
+      "environment": "UNKNOWN",
+      "business_service": "Synthetic internal service",
+      "business_criticality": "UNKNOWN",
+      "internet_exposed": null,
+      "externally_reachable": null,
+      "data_classification": "INTERNAL",
+      "owner": "lab-platform-team",
+      "components": [
+        {
+          "installation_id": "web",
+          "package": {
+            "name": "vulnops-lab-web",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/vulnops-lab-web",
+            "vendor": "VulnOps Lab",
+            "display_name": "Lab Web"
+          },
+          "version": null
+        },
+        {
+          "installation_id": "legacy",
+          "package": {
+            "name": "vulnops-lab-legacy",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/vulnops-lab-legacy",
+            "vendor": "VulnOps Lab",
+            "display_name": "Lab Legacy"
+          },
+          "version": null
+        }
+      ]
+    }
+  ]
+}
