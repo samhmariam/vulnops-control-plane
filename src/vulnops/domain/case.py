@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from vulnops.domain.vulnerability import Vulnerability
+from vulnops.workflow.states import CaseState
 
 
 class AffectedStatus(StrEnum):
@@ -15,12 +16,6 @@ class AffectedStatus(StrEnum):
     AFFECTED = "AFFECTED"
     NOT_AFFECTED = "NOT_AFFECTED"
     UNKNOWN = "UNKNOWN"
-
-
-class CaseState(StrEnum):
-    """Initial lifecycle state; controlled transitions are introduced later."""
-
-    NEW = "NEW"
 
 
 class CaseExposure(BaseModel):
@@ -45,7 +40,7 @@ class VulnerabilityCase(BaseModel):
     vulnerability_id: UUID
     cve_id: str | None = None
     asset_id: UUID
-    state: CaseState = CaseState.NEW
+    state: CaseState = CaseState.DISCOVERED
     affected_status: AffectedStatus = AffectedStatus.UNKNOWN
     exposure: CaseExposure = Field(default_factory=CaseExposure)
     priority: str | None = Field(default=None, min_length=1)

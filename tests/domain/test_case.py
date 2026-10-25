@@ -92,7 +92,7 @@ def test_same_cve_has_four_independent_enterprise_cases():
     assert case_c.evidence_ids[0] == assessments[2].evidence_id
     assert case_d.affected_status is AffectedStatus.UNKNOWN
     assert case_d.evidence_ids == ()
-    assert all(case.priority is None and case.state is CaseState.NEW for case in cases)
+    assert all(case.priority is None and case.state is CaseState.DISCOVERED for case in cases)
 
 
 @pytest.mark.parametrize("status", [AffectedStatus.AFFECTED, AffectedStatus.NOT_AFFECTED])
@@ -229,8 +229,8 @@ def test_unknown_case_and_exposure_fields_are_rejected(case_fields):
         CaseExposure(safe=True)
 
 
-def test_case_cannot_claim_a_closed_state_before_lifecycle_controls_exist(case_fields):
-    payload = VulnerabilityCase(**case_fields).model_dump_json().replace('"NEW"', '"CLOSED"')
+def test_case_rejects_unknown_lifecycle_state_labels(case_fields):
+    payload = VulnerabilityCase(**case_fields).model_dump_json().replace('"DISCOVERED"', '"CLOSED"')
 
     with pytest.raises(ValidationError):
         VulnerabilityCase.model_validate_json(payload)

@@ -4,8 +4,9 @@ VulnOps will connect vulnerability evidence to controlled, auditable remediation
 This repository currently contains the Python foundation, documented system
 invariants, and validated Evidence, Vulnerability, ProductIdentity, and
 VersionConstraint domain models, minimal Asset and InstalledComponent context,
-and evidence-backed VulnerabilityCase snapshots, with tests. It does not yet ingest
-vulnerabilities, run agents, persist business state, or remediate assets.
+and evidence-backed VulnerabilityCase snapshots with deterministic lifecycle policy
+and audit events. It does not yet ingest vulnerabilities, run agents, persist
+business state, or remediate assets.
 
 Use Python 3.12+ and uv. The default local interpreter is Python 3.12.
 
@@ -24,6 +25,7 @@ keep installations reproducible; update it deliberately when changing dependenci
 
 - `src/vulnops/`: framework-independent domain/application package.
 - `tests/`: automated behaviour and packaging tests.
+- `src/vulnops/workflow/`: lifecycle states, transition policy, and audit events.
 - `lab/`: isolated future experiments; excluded from the production package.
 - `docs/`: scope, evidence, and architecture.
 - `docs/decisions/`: architectural decision records (ADRs).
@@ -41,6 +43,8 @@ defines the boundary with upstream inventory and separates components from asset
 exposure and business context.
 The [case granularity design](docs/decisions/ADR-005-vulnerability-case-granularity.md)
 defines one operational case per vulnerability/asset pair and its evidence boundary.
+The [state machine design](docs/decisions/ADR-006-authoritative-state-machine.md)
+defines legal transitions, prerequisites, and the future atomic persistence boundary.
 
 ## Implementation workflow
 
