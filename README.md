@@ -26,8 +26,9 @@ keep installations reproducible; update it deliberately when changing dependenci
 - `docs/`: scope, evidence, and architecture.
 - `docs/decisions/`: architectural decision records (ADRs).
 
-Read [V1 scope](docs/v1-scope.md), [ADR-001](docs/decisions/ADR-001-core-architecture.md),
-and [reference inspection notes](docs/reference-notes.md) before extending the system.
+Read [V1 scope](docs/v1-scope.md), [system invariants](docs/invariants.md),
+[ADR-001](docs/decisions/ADR-001-core-architecture.md), and
+[reference inspection notes](docs/reference-notes.md) before extending the system.
 
 ## Implementation workflow
 
