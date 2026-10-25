@@ -2,8 +2,9 @@
 
 VulnOps will connect vulnerability evidence to controlled, auditable remediation.
 This repository currently contains the Python foundation, documented system
-invariants, and a validated Evidence domain model with tests. It does not yet
-ingest vulnerabilities, run agents, persist business state, or remediate assets.
+invariants, and validated Evidence, Vulnerability, ProductIdentity, and
+VersionConstraint domain models with tests. It does not yet ingest vulnerabilities,
+run agents, persist business state, or remediate assets.
 
 Use Python 3.12+ and uv. The default local interpreter is Python 3.12.
 
@@ -14,8 +15,8 @@ uv run --locked pytest
 uv build
 ```
 
-Pydantic v2 is the only runtime dependency, reserved for explicit data contracts
-in subsequent prompts. pytest is a development dependency. Commit `uv.lock` to
+Pydantic v2 is the only runtime dependency and validates the domain contracts.
+pytest is a development dependency. Commit `uv.lock` to
 keep installations reproducible; update it deliberately when changing dependencies.
 
 ## Layout
@@ -31,6 +32,9 @@ Read [V1 scope](docs/v1-scope.md), [system invariants](docs/invariants.md),
 [reference inspection notes](docs/reference-notes.md) before extending the system.
 The [Evidence design](docs/decisions/ADR-002-evidence-first-domain-model.md) explains
 the first domain object and the distinction between observations and conclusions.
+The [canonical vulnerability design](docs/decisions/ADR-003-canonical-vulnerability-model.md)
+explains product identity, descriptive version constraints, and separate source
+observations without an aggregate risk score.
 
 ## Implementation workflow
 
