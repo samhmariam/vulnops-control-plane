@@ -9,6 +9,7 @@ from sqlalchemy.exc import OperationalError
 
 from vulnops import cli
 from vulnops.application.inspection import InspectionService, RecordNotFound
+from vulnops.application.walking_skeleton import DEMO_TENANT_ID, DemoAcceptanceError
 
 
 @pytest.fixture
@@ -40,14 +41,25 @@ def test_command_dispatch_and_evidence_serialization(service, capsys, arguments,
     getattr(service, method).assert_called_once()
 
 
-def test_demo_runs_without_database_or_tenant(monkeypatch, capsys):
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+def test_demo_uses_application_service_and_dedicated_default_tenant(monkeypatch, capsys):
     monkeypatch.delenv("VULNOPS_TENANT_ID", raising=False)
+    operation = Mock(return_value={"synthetic": True, "persisted": True})
+    monkeypatch.setattr(cli, "run_walking_demo", operation)
     lab = Path(__file__).resolve().parents[1] / "lab"
     assert cli.main(["demo", "--lab-dir", str(lab)]) == 0
-    report = json.loads(capsys.readouterr().out)
-    assert report["persisted"] is False
-    assert len(report["assessments"]) == 12
+    output = capsys.readouterr().out
+    payload, tail = output.split("\nBLOCKED:", 1)
+    assert json.loads(payload)["persisted"] is True
+    assert tail.endswith("DAY-1 ACCEPTANCE: PASS\n")
+    operation.assert_called_once_with(lab, DEMO_TENANT_ID)
+
+
+@pytest.mark.parametrize("error", [DemoAcceptanceError("failure"), OperationalError("COMMIT", {}, Exception("failure"))])
+def test_demo_never_prints_pass_on_application_or_commit_failure(monkeypatch, capsys, error):
+    monkeypatch.setattr(cli, "run_walking_demo", Mock(side_effect=error))
+    assert cli.main(["demo"]) == 1
+    captured = capsys.readouterr()
+    assert "DAY-1 ACCEPTANCE: PASS" not in captured.out + captured.err
 
 
 def test_missing_lab_is_reported_cleanly(capsys, tmp_path):

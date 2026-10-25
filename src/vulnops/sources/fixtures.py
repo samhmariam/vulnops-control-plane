@@ -145,18 +145,23 @@ def _constraints(affected: _Affected):
 
 
 class FixtureVulnerabilitySource:
-    def __init__(self, fixture_root: Path):
+    def __init__(self, fixture_root: Path, *, cve_id: str | None = None):
         self.root = Path(fixture_root)
+        self.cve_id = Vulnerability.validate_cve_id(cve_id)
 
     def fetch(self) -> tuple[SourcedVulnerability, ...]:
         try:
             raw_manifest, _ = _read(self.root, self.root / "manifest.json")
             manifest = _Manifest.model_validate(raw_manifest)
             results = {}
-            for path in sorted((self.root / "vulnerabilities").glob("*.json")):
+            paths = ([self.root / "vulnerabilities" / f"{self.cve_id}.json"] if self.cve_id else
+                     sorted((self.root / "vulnerabilities").glob("*.json")))
+            for path in paths:
                 raw, digest = _read(self.root, path)
                 record = _Vulnerability.model_validate(raw)
                 cve_id = Vulnerability.validate_cve_id(record.id)
+                if self.cve_id and cve_id != self.cve_id:
+                    raise SourceError("Selected fixture identity differs from its record")
                 if cve_id in results:
                     raise SourceError("Duplicate vulnerability identity in fixture snapshot")
                 evidence = _evidence(self.root, path, raw, digest, manifest, EvidenceSource.CVE,
@@ -189,6 +194,8 @@ class FixtureVulnerabilitySource:
                     raw, digest = _read(self.root, path)
                     for item in raw[key]:
                         cve_id = Vulnerability.validate_cve_id(item[cve_key])
+                        if self.cve_id and cve_id != self.cve_id:
+                            continue
                         if cve_id not in results or (source_type, cve_id) in seen:
                             raise SourceError("Orphan or duplicate enrichment observation in snapshot")
                         seen.add((source_type, cve_id))
@@ -238,6 +245,7 @@ def load_fixture_inventory(inventory_root: Path) -> tuple[SourcedAsset, ...]:
             asset_id = uuid5(_NAMESPACE, f"asset:{external_id}")
             evidence = _evidence(root, path, record, digest, manifest, EvidenceSource.ASSET_INVENTORY,
                                  "asset", str(asset_id), "inventory_record")
+            evidence.metadata["component_inventory_complete"] = record.get("component_inventory_complete") is True
             components = []
             installations = set()
             for component in record["components"]:

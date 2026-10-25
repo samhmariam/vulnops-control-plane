@@ -74,6 +74,14 @@ def test_missing_observation_is_unknown_rather_than_negative(snapshot):
     assert second.epss_observation is None
 
 
+def test_selected_source_loads_one_vulnerability_without_parsing_unselected_records(snapshot):
+    (snapshot / "fixtures/vulnerabilities/CVE-2099-900002.json").write_text("invalid JSON")
+    source = FixtureVulnerabilitySource(snapshot / "fixtures", cve_id="CVE-2099-900001")
+    record, = source.fetch()
+    assert record.vulnerability.cve_id == "CVE-2099-900001"
+    assert record.vulnerability.kev_observation.listed
+
+
 @pytest.mark.parametrize("orphan", [True, False])
 def test_orphan_or_duplicate_enrichment_rejected(snapshot, orphan):
     def mutate(data):

@@ -9,14 +9,20 @@ Run the offline adapter and component/product matcher from the repository root:
 
 ```bash
 uv run --locked python lab/demo.py
-uv run --locked vulnops demo
 uv run --locked pytest tests/sources tests/integration/test_fixture_ingestion.py -m 'not integration'
 ```
 
 The demo prints deterministic pair assessments. It does not persist cases, change
 lifecycle state, or infer an asset-wide conclusion from an unrelated component.
-The CLI version returns JSON including canonical records, assessment reasons, and
-supporting Evidence. Both entry points use the same application service.
+For the persisted walking skeleton, configure PostgreSQL as documented in the
+root README and run `uv run --env-file .env vulnops demo`. That command selects
+CVE-2099-900001, persists evidence, all six assets, four relevant cases, and twelve
+legal transitions. It proves the affected, unaffected, and UNKNOWN →
+MANUAL_INVESTIGATION scenarios and the blocked approval shortcut before printing
+`DAY-1 ACCEPTANCE: PASS`. Exact replay preserves IDs and history. The inventory's
+explicit completeness claim permits the fixed web asset's negative conclusion;
+missing legacy versions still yield UNKNOWN. See
+[ADR-011](../docs/decisions/ADR-011-persisted-day1-walking-skeleton.md).
 
 | Asset | Context | Example assessment |
 | --- | --- | --- |

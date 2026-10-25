@@ -2,12 +2,12 @@
 
 from pathlib import Path
 
-from vulnops.application.demo import run_demo
+from vulnops.application.demo import preview_demo
 
 
 def main():
     root = Path(__file__).resolve().parent
-    report = run_demo(root)
+    report = preview_demo(root)
     assets = {asset.asset_id: asset for asset in report.assets}
     print("SYNTHETIC LAB — component/product pairs; no asset-wide safety conclusion")
     for assessment in report.assessments:

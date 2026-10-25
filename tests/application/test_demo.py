@@ -1,10 +1,10 @@
 from pathlib import Path
 
-from vulnops.application.demo import run_demo
+from vulnops.application.demo import preview_demo
 
 
 def test_demo_resolves_synthetic_candidates_with_complete_evidence():
-    report = run_demo(Path(__file__).resolve().parents[2] / "lab")
+    report = preview_demo(Path(__file__).resolve().parents[2] / "lab")
     assert report.synthetic and not report.persisted
     assert len(report.assets) == 6
     assert len(report.vulnerabilities) == 5

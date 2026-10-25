@@ -10,7 +10,7 @@ history. Offline fixture adapters now ingest synthetic vulnerability and invento
 snapshots. Live feeds, agents, and remediation execution remain future work.
 Conservative product/version matching resolves individual component/product pairs
 as AFFECTED, NOT_AFFECTED, or UNKNOWN with reasons and evidence references.
-Application services and a JSON CLI expose tenant-scoped records and an offline demo.
+Application services and a CLI expose tenant-scoped records and a persisted Day 1 demo.
 
 Use Python 3.12+ and uv. The default local interpreter is Python 3.12.
 
@@ -28,16 +28,32 @@ keep installations reproducible; update it deliberately when changing dependenci
 
 ## Day 1 CLI
 
-Run the offline synthetic lab from this checkout; it needs no database or tenant:
+After starting and migrating local PostgreSQL as described below, run the persisted
+walking skeleton from this checkout:
 
 ```bash
 uv run --locked vulnops --help
-uv run --locked vulnops demo
+uv run --env-file .env --locked vulnops demo
 ```
 
-The demo returns six assets, five vulnerabilities, twelve component/product
-assessments, and supporting Evidence. It writes no database state and does not
-create cases or infer asset-wide safety. Outside this checkout, supply
+With DATABASE_URL already exported, the command is simply `uv run vulnops demo`.
+It ingests one synthetic vulnerability and six lab assets, then creates four
+relevant cases with supporting Evidence and twelve persisted lifecycle events:
+web-01/dev-01 AFFECTED, web-02 NOT_AFFECTED, and legacy-01 UNKNOWN →
+MANUAL_INVESTIGATION. An explicit complete-inventory claim is required for the
+negative asset conclusion. The command attempts AFFECTED_CONFIRMED → APPROVED and
+requires the state-transition policy to block it without changing state/history.
+Only after commit and readback does it print `DAY-1 ACCEPTANCE: PASS`.
+
+The default dedicated demo tenant is `d383a693-f08c-504b-bf7e-d7008885b119`.
+Exact repeats reuse cases, evidence, and events. Changed fixtures or independently
+progressed demo cases fail instead of being reset. All writes share one tenant
+transaction; failures never print PASS. The demo emits JSON followed by the blocked
+edge and acceptance lines. For a database-free preview of all five fixtures, run
+`uv run python lab/demo.py`; that preview does not claim Day 1 acceptance.
+See [ADR-011](docs/decisions/ADR-011-persisted-day1-walking-skeleton.md).
+
+Outside this checkout, supply
 `vulnops demo --lab-dir /path/to/vulnops-control-plane/lab`; fixtures are not shipped
 in the production wheel.
 
@@ -56,11 +72,12 @@ uv run --env-file .env --locked vulnops case history '<case-uuid>'
 
 Alternatively place `--tenant-id <uuid>` before the resource command. Asset and case
 IDs are internal UUIDs returned in JSON; vulnerability lookup uses a CVE identifier.
-All six database commands are read-only and expose evidence IDs. Lists default to
+The six inspection commands are read-only and expose evidence IDs. Lists default to
 100 records, with a maximum limit of 1000; request additional pages using offset.
 History retains event sequence order. A fresh database returns empty lists until
-records are saved through an explicit tenant-scoped integration; `demo` does not
-seed it. JSON preserves UNKNOWN/null and escapes untrusted terminal controls.
+records are saved through an explicit tenant-scoped integration or the persisted
+demo. To inspect the default demo, use its tenant UUID above. JSON preserves
+UNKNOWN/null and escapes untrusted terminal controls.
 
 Exit codes are 0 for success, 1 for database/source failure, 2 for invalid input or
 configuration, and 3 for a record not found in the selected tenant. Tenant selection

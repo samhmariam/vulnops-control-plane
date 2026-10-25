@@ -37,7 +37,8 @@
           },
           "version": "1.0.0"
         }
-      ]
+      ],
+      "component_inventory_complete": true
     },
     {
       "external_id": "vulnops-lab:asset-web-02",
@@ -73,7 +74,8 @@
           },
           "version": "2.0.0"
         }
-      ]
+      ],
+      "component_inventory_complete": true
     },
     {
       "external_id": "vulnops-lab:asset-api-01",
@@ -109,7 +111,8 @@
           },
           "version": "1.0.0"
         }
-      ]
+      ],
+      "component_inventory_complete": true
     },
     {
       "external_id": "vulnops-lab:asset-dev-01",
@@ -156,7 +159,8 @@
           },
           "version": "1.0.0"
         }
-      ]
+      ],
+      "component_inventory_complete": true
     },
     {
       "external_id": "vulnops-lab:asset-db-01",
@@ -181,7 +185,8 @@
           },
           "version": "5.0.0"
         }
-      ]
+      ],
+      "component_inventory_complete": true
     },
     {
       "external_id": "vulnops-lab:asset-legacy-01",
@@ -217,7 +222,8 @@
           },
           "version": null
         }
-      ]
+      ],
+      "component_inventory_complete": true
     }
   ]
 }

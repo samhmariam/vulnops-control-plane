@@ -29,7 +29,7 @@ class DemoReport(BaseModel):
     assessments: list[DemoAssessment]
 
 
-def run_demo(lab_dir: Path) -> DemoReport:
+def preview_demo(lab_dir: Path) -> DemoReport:
     vulnerabilities = FixtureVulnerabilitySource(lab_dir / "fixtures").fetch()
     assets = load_fixture_inventory(lab_dir / "inventory")
     assessments = []

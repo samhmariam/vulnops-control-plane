@@ -11,8 +11,8 @@ from uuid import UUID
 from pydantic import TypeAdapter
 from sqlalchemy.exc import SQLAlchemyError
 
-from vulnops.application.bootstrap import open_inspection
-from vulnops.application.demo import run_demo
+from vulnops.application.bootstrap import open_inspection, run_walking_demo
+from vulnops.application.walking_skeleton import DEMO_TENANT_ID, DemoAcceptanceError
 from vulnops.application.inspection import RecordNotFound
 from vulnops.sources.base import SourceError
 
@@ -31,7 +31,7 @@ def parser() -> argparse.ArgumentParser:
         actions.add_parser("show").add_argument("identifier", type=UUID, metavar=f"{resource}-id")
         if resource == "case":
             actions.add_parser("history").add_argument("identifier", type=UUID, metavar="case-id")
-    demo = commands.add_parser("demo", help="Run the offline synthetic lab; writes no database state")
+    demo = commands.add_parser("demo", help="Persist and verify the Day 1 synthetic walking skeleton in PostgreSQL")
     demo.add_argument("--lab-dir", type=Path, default=Path("lab"), help="Lab snapshot directory (default: ./lab)")
     return root
 
@@ -54,7 +54,8 @@ def main(argv: list[str] | None = None) -> int:
     args = arguments.parse_args(argv)
     try:
         if args.resource == "demo":
-            result = run_demo(args.lab_dir)
+            tenant_id = UUID(args.tenant_id or os.environ.get("VULNOPS_TENANT_ID") or str(DEMO_TENANT_ID))
+            result = run_walking_demo(args.lab_dir, tenant_id)
         else:
             raw_tenant = args.tenant_id or os.environ.get("VULNOPS_TENANT_ID")
             if not raw_tenant:
@@ -64,7 +65,13 @@ def main(argv: list[str] | None = None) -> int:
                 result = _inspect(service, args)
         # JSON escapes terminal controls in untrusted advisory/inventory text.
         print(json.dumps(TypeAdapter(Any).dump_python(result, mode="json"), indent=2, ensure_ascii=True))
+        if args.resource == "demo":
+            print("BLOCKED: AFFECTED_CONFIRMED -> APPROVED (state-transition policy)")
+            print("DAY-1 ACCEPTANCE: PASS")
         return 0
+    except DemoAcceptanceError:
+        print("DAY-1 ACCEPTANCE: FAIL — a required scenario, policy check, or persistence verification failed.", file=sys.stderr)
+        return 1
     except RecordNotFound:
         print("Record not found in this tenant.", file=sys.stderr)
         return 3
