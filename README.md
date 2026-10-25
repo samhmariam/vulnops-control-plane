@@ -3,8 +3,9 @@
 VulnOps will connect vulnerability evidence to controlled, auditable remediation.
 This repository currently contains the Python foundation, documented system
 invariants, and validated Evidence, Vulnerability, ProductIdentity, and
-VersionConstraint domain models with tests. It does not yet ingest vulnerabilities,
-run agents, persist business state, or remediate assets.
+VersionConstraint domain models, plus minimal Asset and InstalledComponent context,
+with tests. It does not yet ingest vulnerabilities, run agents, persist business
+state, or remediate assets.
 
 Use Python 3.12+ and uv. The default local interpreter is Python 3.12.
 
@@ -35,6 +36,9 @@ the first domain object and the distinction between observations and conclusions
 The [canonical vulnerability design](docs/decisions/ADR-003-canonical-vulnerability-model.md)
 explains product identity, descriptive version constraints, and separate source
 observations without an aggregate risk score.
+The [enterprise asset design](docs/decisions/ADR-004-minimal-enterprise-asset-model.md)
+defines the boundary with upstream inventory and separates components from asset
+exposure and business context.
 
 ## Implementation workflow
 
