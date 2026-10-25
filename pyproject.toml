@@ -6,6 +6,9 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2,<3",
+    "sqlalchemy>=2.0,<3",
+    "alembic>=1.14,<2",
+    "psycopg[binary]>=3.2,<4",
 ]
 
 [dependency-groups]
@@ -23,3 +26,4 @@ packages = ["src/vulnops"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
+markers = ["integration: requires a migrated PostgreSQL test database"]
