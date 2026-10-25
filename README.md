@@ -1,9 +1,9 @@
 # VulnOps control plane
 
 VulnOps will connect vulnerability evidence to controlled, auditable remediation.
-This repository currently contains the Prompt 0 foundation: an installable Python
-package, a packaging smoke test, and the V1 architectural boundary. It does not
-yet ingest vulnerabilities, run agents, persist business state, or remediate assets.
+This repository currently contains the Python foundation, documented system
+invariants, and a validated Evidence domain model with tests. It does not yet
+ingest vulnerabilities, run agents, persist business state, or remediate assets.
 
 Use Python 3.12+ and uv. The default local interpreter is Python 3.12.
 
@@ -29,6 +29,8 @@ keep installations reproducible; update it deliberately when changing dependenci
 Read [V1 scope](docs/v1-scope.md), [system invariants](docs/invariants.md),
 [ADR-001](docs/decisions/ADR-001-core-architecture.md), and
 [reference inspection notes](docs/reference-notes.md) before extending the system.
+The [Evidence design](docs/decisions/ADR-002-evidence-first-domain-model.md) explains
+the first domain object and the distinction between observations and conclusions.
 
 ## Implementation workflow
 
