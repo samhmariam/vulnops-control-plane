@@ -118,6 +118,8 @@ uv run --env-file .env --locked pytest tests/acceptance/test_day01.py
 
 The [Day 1 acceptance report](docs/day01-acceptance-report.md) records the eight
 capability scenarios, measured results, limitations, and conditions for Day 2 work.
+The [Day 1 security review](docs/day01-security-review.md) records the twelve
+architectural boundary assessments, verified fixes, and future authority controls.
 
 Alembic uses `VULNOPS_MIGRATION_DATABASE_URL` (owner credentials); application code
 uses `DATABASE_URL` (restricted `vulnops_app` credentials). The local init script

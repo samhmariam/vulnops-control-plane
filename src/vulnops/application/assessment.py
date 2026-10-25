@@ -23,7 +23,16 @@ class AssetAssessment(BaseModel):
 
 
 def assess_asset(vulnerability: Vulnerability, asset: Asset, evidence: list[Evidence]) -> AssetAssessment:
-    records = {item.evidence_id: item for item in evidence}
+    # Nested lists are mutable even on validated input models. Revalidate the full
+    # containing snapshot so a valid component cannot be attributed to another asset.
+    vulnerability = Vulnerability.model_validate_json(vulnerability.model_dump_json())
+    asset = Asset.model_validate_json(asset.model_dump_json())
+    evidence = [Evidence.model_validate_json(item.model_dump_json()) for item in evidence]
+    records = {}
+    for item in evidence:
+        if item.evidence_id in records and records[item.evidence_id] != item:
+            raise ValueError("Conflicting evidence content for the same identity")
+        records[item.evidence_id] = item
     required = set(vulnerability.evidence_ids) | set(asset.evidence_ids)
     required.update(ref for product in vulnerability.affected_products for ref in product.evidence_ids)
     required.update(ref for component in asset.components for ref in component.evidence_ids)

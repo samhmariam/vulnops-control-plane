@@ -13,3 +13,4 @@ build/
 .agents/
 .codex/
 .aws/
+.gstack/

@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
 
 class EvidenceSource(StrEnum):
@@ -47,3 +47,11 @@ class Evidence(BaseModel):
     raw_payload_hash: str | None = None
     confidence: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("source_name", "subject_type", "subject_id", "claim_type", "claim", "source_uri", "raw_payload_hash")
+    @classmethod
+    def require_nonblank_attribution(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("Evidence attribution and claim fields must not be blank when supplied")
+        # Preserve source text verbatim; nonblank content is not proof of truth.
+        return value

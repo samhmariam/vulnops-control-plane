@@ -132,3 +132,13 @@ Keep these eight scenarios in the regression suite throughout Days 2–10. New s
 formats should add fixtures and tests without weakening them. Revisit the harness
 when a supported ecosystem or a deliberate ADR changes the external capability
 contract; do not rewrite expected outcomes merely to accommodate a failing gate.
+
+## Prompt 13 security follow-up
+
+The [security architecture review](day01-security-review.md) reproduced and fixed
+one HIGH assessment-ownership gap and one MEDIUM blank-attribution gap, recorded
+in ADR-012. The post-fix full suite passed **405 tests**, including all eight
+acceptance scenarios and 25 added security regressions. The original Prompt 12
+measurements above remain the historical baseline. Source authenticity, authenticated
+agent authority, exact action-bound approvals, and global mutation denial remain
+explicit gates before their corresponding capabilities are enabled.
