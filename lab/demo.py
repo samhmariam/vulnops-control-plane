@@ -2,24 +2,20 @@
 
 from pathlib import Path
 
-from vulnops.matching.affected_resolver import resolve_affected
-from vulnops.matching.product_matcher import ProductMatchStatus
-from vulnops.sources.fixtures import FixtureVulnerabilitySource, load_fixture_inventory
+from vulnops.application.demo import run_demo
 
 
 def main():
     root = Path(__file__).resolve().parent
-    vulnerabilities = FixtureVulnerabilitySource(root / "fixtures").fetch()
-    assets = load_fixture_inventory(root / "inventory")
+    report = run_demo(root)
+    assets = {asset.asset_id: asset for asset in report.assets}
     print("SYNTHETIC LAB — component/product pairs; no asset-wide safety conclusion")
-    for source in vulnerabilities:
-        for inventory in assets:
-            for component in inventory.asset.components:
-                for product in source.vulnerability.affected_products:
-                    result = resolve_affected(component, product)
-                    if result.identity_status is not ProductMatchStatus.DIFFERENT:
-                        print(f"{source.vulnerability.cve_id}  {inventory.asset.external_id}  "
-                              f"{component.identity.package_name}  {result.status.value}")
+    for assessment in report.assessments:
+        result = assessment.result
+        asset = assets[result.asset_id]
+        component = next(item for item in asset.components if item.component_id == result.component_id)
+        print(f"{assessment.cve_id}  {asset.external_id}  "
+              f"{component.identity.package_name}  {result.status.value}")
 
 
 if __name__ == "__main__":

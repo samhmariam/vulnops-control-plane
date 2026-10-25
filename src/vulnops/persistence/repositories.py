@@ -119,6 +119,30 @@ class Repositories:
         row = self._row(VulnerabilityRecord, VulnerabilityRecord.vulnerability_id == vulnerability_id)
         return _decode(Vulnerability, row.payload) if row else None
 
+    def find_vulnerability_by_cve(self, cve_id: str) -> Vulnerability | None:
+        row = self._row(VulnerabilityRecord, VulnerabilityRecord.cve_id == cve_id)
+        return _decode(Vulnerability, row.payload) if row else None
+
+    def list_assets(self, *, limit: int, offset: int) -> list[Asset]:
+        rows = list(self._session.scalars(select(AssetRecord).where(
+            AssetRecord.tenant_id == self._tenant_id,
+        ).order_by(AssetRecord.asset_id).limit(limit).offset(offset)))
+        if not rows:
+            return []
+        components = {row.asset_id: [] for row in rows}
+        for component in self._session.scalars(select(InstalledComponentRecord).where(
+            InstalledComponentRecord.tenant_id == self._tenant_id,
+            InstalledComponentRecord.asset_id.in_(components),
+        ).order_by(InstalledComponentRecord.asset_id, InstalledComponentRecord.position)):
+            components[component.asset_id].append(component.payload)
+        return [_decode(Asset, {**row.payload, "components": components[row.asset_id]}) for row in rows]
+
+    def list_cases(self, *, limit: int, offset: int) -> list[VulnerabilityCase]:
+        rows = self._session.scalars(select(CaseRecord).where(
+            CaseRecord.tenant_id == self._tenant_id,
+        ).order_by(CaseRecord.case_id).limit(limit).offset(offset))
+        return [_decode(VulnerabilityCase, row.payload) for row in rows]
+
     def save_asset(self, asset: Asset) -> Asset:
         asset = _revalidate(asset)
         with self._session.begin_nested():

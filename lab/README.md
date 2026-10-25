@@ -9,11 +9,14 @@ Run the offline adapter and component/product matcher from the repository root:
 
 ```bash
 uv run --locked python lab/demo.py
+uv run --locked vulnops demo
 uv run --locked pytest tests/sources tests/integration/test_fixture_ingestion.py -m 'not integration'
 ```
 
 The demo prints deterministic pair assessments. It does not persist cases, change
 lifecycle state, or infer an asset-wide conclusion from an unrelated component.
+The CLI version returns JSON including canonical records, assessment reasons, and
+supporting Evidence. Both entry points use the same application service.
 
 | Asset | Context | Example assessment |
 | --- | --- | --- |

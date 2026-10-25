@@ -10,6 +10,7 @@ history. Offline fixture adapters now ingest synthetic vulnerability and invento
 snapshots. Live feeds, agents, and remediation execution remain future work.
 Conservative product/version matching resolves individual component/product pairs
 as AFFECTED, NOT_AFFECTED, or UNKNOWN with reasons and evidence references.
+Application services and a JSON CLI expose tenant-scoped records and an offline demo.
 
 Use Python 3.12+ and uv. The default local interpreter is Python 3.12.
 
@@ -24,6 +25,48 @@ Pydantic v2 validates domain contracts; SQLAlchemy 2, Alembic, and psycopg provi
 PostgreSQL persistence; packageurl-python parses structured Package URLs.
 pytest is a development dependency. Commit `uv.lock` to
 keep installations reproducible; update it deliberately when changing dependencies.
+
+## Day 1 CLI
+
+Run the offline synthetic lab from this checkout; it needs no database or tenant:
+
+```bash
+uv run --locked vulnops --help
+uv run --locked vulnops demo
+```
+
+The demo returns six assets, five vulnerabilities, twelve component/product
+assessments, and supporting Evidence. It writes no database state and does not
+create cases or infer asset-wide safety. Outside this checkout, supply
+`vulnops demo --lab-dir /path/to/vulnops-control-plane/lab`; fixtures are not shipped
+in the production wheel.
+
+To inspect existing database records, configure the runtime `DATABASE_URL` and
+an explicit tenant UUID. After starting and migrating PostgreSQL as described below:
+
+```bash
+export VULNOPS_TENANT_ID='<your-tenant-uuid>'
+uv run --env-file .env --locked vulnops vulnerability show CVE-2099-900001
+uv run --env-file .env --locked vulnops asset list --limit 100 --offset 0
+uv run --env-file .env --locked vulnops asset show '<asset-uuid>'
+uv run --env-file .env --locked vulnops case list
+uv run --env-file .env --locked vulnops case show '<case-uuid>'
+uv run --env-file .env --locked vulnops case history '<case-uuid>'
+```
+
+Alternatively place `--tenant-id <uuid>` before the resource command. Asset and case
+IDs are internal UUIDs returned in JSON; vulnerability lookup uses a CVE identifier.
+All six database commands are read-only and expose evidence IDs. Lists default to
+100 records, with a maximum limit of 1000; request additional pages using offset.
+History retains event sequence order. A fresh database returns empty lists until
+records are saved through an explicit tenant-scoped integration; `demo` does not
+seed it. JSON preserves UNKNOWN/null and escapes untrusted terminal controls.
+
+Exit codes are 0 for success, 1 for database/source failure, 2 for invalid input or
+configuration, and 3 for a record not found in the selected tenant. Tenant selection
+is for trusted local operators with runtime database access; it is not a login or
+membership check. A remote/multi-user interface requires authenticated tenant
+authority. See [ADR-010](docs/decisions/ADR-010-cli-before-operator-console.md).
 
 ## Local PostgreSQL and integration tests
 
@@ -69,6 +112,8 @@ also enforces transition policy and cannot insert an unauthorised state shortcut
 - `src/vulnops/matching/`: conservative identity, version, and pair resolution.
 - `alembic/`: reviewed schema and row-level security migrations.
 - `src/vulnops/sources/`: canonical source protocol and offline fixture adapters.
+- `src/vulnops/application/`: inspection and demo use cases, with infrastructure composition.
+- `src/vulnops/cli.py`: argument parsing, command dispatch, and JSON presentation.
 - `lab/`: six synthetic assets, five vulnerability fixtures, and inert containers;
   see the [lab guide](lab/README.md). Excluded from the production package.
 - `docs/`: scope, evidence, and architecture.

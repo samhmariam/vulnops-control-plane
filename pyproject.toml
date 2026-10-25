@@ -12,6 +12,9 @@ dependencies = [
     "packageurl-python>=0.16,<1",
 ]
 
+[project.scripts]
+vulnops = "vulnops.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8,<10",

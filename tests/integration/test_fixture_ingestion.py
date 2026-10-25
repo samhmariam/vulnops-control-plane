@@ -81,3 +81,6 @@ def test_fixture_snapshots_persist_and_replay_without_duplicates(database, tenan
             assert repository.load_vulnerability(item.vulnerability.vulnerability_id) == item.vulnerability
         for item in assets:
             assert repository.load_asset(item.asset.asset_id) == item.asset
+        assert repository.list_assets(limit=100, offset=0) == sorted(
+            [item.asset for item in assets], key=lambda asset: asset.asset_id,
+        )
