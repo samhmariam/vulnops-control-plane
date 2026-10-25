@@ -30,4 +30,7 @@ packages = ["src/vulnops"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
-markers = ["integration: requires a migrated PostgreSQL test database"]
+markers = [
+    "integration: requires a migrated PostgreSQL test database",
+    "acceptance: Day 1 capability gate; requires real PostgreSQL and never skips for missing configuration",
+]

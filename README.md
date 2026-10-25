@@ -98,12 +98,26 @@ uv run --env-file .env --locked alembic check
 uv run --env-file .env --locked pytest
 ```
 
-The full suite includes PostgreSQL integration tests when both `VULNOPS_TEST_*`
-database URLs are set. Without them those tests skip; skips do not satisfy the
-persistence acceptance gate. Use a dedicated local/test database, never production.
+The full suite requires both `VULNOPS_TEST_*` database URLs. Integration-only tests
+skip without them, while the Day 1 acceptance suite fails missing configuration;
+skipped database checks cannot establish readiness. Use a dedicated local/test
+database, never production.
 Tests migrate the schema and create synthetic rows under random tenant IDs.
 They do not truncate tables or delete database volumes. `docker compose stop`
 stops the database while retaining its data.
+
+Run the three disjoint regression groups separately, or use the full-suite command
+above. Acceptance scenarios also carry the integration marker because they require
+real PostgreSQL:
+
+```bash
+uv run --locked pytest -m 'not integration and not acceptance'
+uv run --env-file .env --locked pytest -m 'integration and not acceptance'
+uv run --env-file .env --locked pytest tests/acceptance/test_day01.py
+```
+
+The [Day 1 acceptance report](docs/day01-acceptance-report.md) records the eight
+capability scenarios, measured results, limitations, and conditions for Day 2 work.
 
 Alembic uses `VULNOPS_MIGRATION_DATABASE_URL` (owner credentials); application code
 uses `DATABASE_URL` (restricted `vulnops_app` credentials). The local init script
