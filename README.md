@@ -12,6 +12,10 @@ Conservative product/version matching resolves individual component/product pair
 as AFFECTED, NOT_AFFECTED, or UNKNOWN with reasons and evidence references.
 Application services and a CLI expose tenant-scoped records and a persisted Day 1 demo.
 
+Start with the [Architecture & Maintenance Walkthrough](docs/day01-architecture-walkthrough.md)
+to understand how the components connect to the business goal, then use the setup
+and command reference below.
+
 Use Python 3.12+ and uv. The default local interpreter is Python 3.12.
 
 ```bash

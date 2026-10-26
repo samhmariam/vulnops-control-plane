@@ -1,486 +1,642 @@
-# Understanding VulnOps Day 1
+# VulnOps: Architecture & Maintenance Walkthrough
+
+This is the architectural starting point for engineers maintaining the Day 1
+foundation. It consolidates the earlier walkthrough and blueprint. Read sections
+1–4 in order to establish the system model; sections 5–7 use that model to explain
+correctness, diagnosis, and safe evolution. Commands and reference material are
+in the appendices.
+
+The implementation defines current behaviour. ADRs record why decisions were made
+and how they changed. This guide connects those two views; it does not replace the
+[invariants](invariants.md), [decision ledger](day01-decision-ledger.md), or
+[security review](day01-security-review.md).
+
+## 1. The business outcome and the system boundary
 
 A vulnerability announcement does not equal enterprise risk.
 
-Suppose an advisory says that Lab Web versions from 1.0.0 up to, but excluding,
-2.0.0 contain a vulnerability. You operate a server called web-01. Should you
-remediate it?
+The security team receives a statement about software, but must make decisions
+about its own infrastructure. It needs to determine which assets are affected,
+prioritise their treatment, carry out permitted remediation, and establish that the
+remediation worked. Each decision needs an explanation that survives staff changes,
+retries, and process failures.
 
-The advisory cannot answer that question. You also need to know what web-01 runs.
-If inventory reports Lab Web 1.4.0, you can connect the two reports and conclude
-that the reported installation is affected. If inventory has no version, you
-cannot complete that reasoning. If it reports 2.0.0, you have a basis for excluding
-that installation from the advisory's affected range.
+VulnOps is the control plane for that work: it connects intelligence to enterprise
+assets and governs the recorded lifecycle. The eventual V1 outcome is **verified
+remediation**. Day 1 builds the foundation: **evidence-supported applicability,
+independent asset cases, controlled progression, and durable history**.
 
-VulnOps makes this reasoning explicit and keeps its supporting records. It then
-tracks work separately for each asset, under rules that control how that work may
-progress. Day 1 builds this foundation; later days can add prioritisation and
-remediation without having to invent a new account of why an asset needs attention.
+Throughout this guide we use one actual lab fixture, the fictional
+[CVE-2099-900001](../lab/fixtures/vulnerabilities/CVE-2099-900001.json). It reports
+that Lab Web is affected from version 1.0.0 until the fixed release 2.0.0. Inventory
+reports Lab Web 1.4.0 on web-01, 2.0.0 on web-02, and no version on legacy-01.
+Those assets need different outcomes even though they share the same advisory.
 
-The example throughout this guide comes from the repository's fictional
-`CVE-2099-900001` and Lab Web fixtures. No real CVE or package is being assessed.
-The lab containers are inert stand-ins; their inventory is synthetic input.
+The architecture follows directly from that need:
 
-## The mental model: reports, conclusions, and controlled work
-
-Keep three questions separate as you read:
-
-1. **What was reported, and by whom?** An advisory reports an affected range.
-   Inventory reports an installed version. We preserve both reports and their origins.
-2. **What follows from those reports?** A matching rule compares product identity
-   and version. Its conclusion must point back to the reports that support it.
-3. **What work has been recorded or authorised?** A case tracks this vulnerability
-   on this asset. Lifecycle policy controls the changes to that case.
-
-```mermaid
-flowchart LR
-    R["Reports with their origins"] --> C["Conclusions supported by those reports"]
-    C --> W["Controlled work on a particular asset"]
-```
-
-Each arrow adds something. The first adds interpretation: a version is inside an
-affected range. The second adds workflow: a case progresses through permitted
-stages. Neither arrow makes the original source infallible.
-
-This distinction is useful when something goes wrong. A bad installed version is
-an inventory problem. An incorrect range comparison is a matching problem. An
-approval shortcut is a workflow problem. They need different fixes, and the system
-must retain enough information to tell them apart.
-
-We will first build the left side of this diagram, then follow one conclusion into
-a case and its durable history. Code comes after that reasoning is established.
-
-## 1. Start with two reports, not an affected asset
-
-Our investigation begins with an advisory:
-
-> For CVE-2099-900001, the package vulnops-lab-web is affected from version 1.0.0
-> until the fixed version 2.0.0.
-
-That is a readable restatement of [the actual fixture](../lab/fixtures/vulnerabilities/CVE-2099-900001.json).
-It says something about a product and its releases. It contains no knowledge of
-our servers.
-
-Separately, our inventory reports:
-
-> The installation of vulnops-lab-web on asset-web-01 has version 1.4.0.
-
-Neither report alone establishes that web-01 is affected. Together they supply the
-two sides of a comparison:
-
-```text
-Advisory:   this product, with this affected version range
-Inventory:  this asset, with this product and installed version
-```
-
-There are still two questions to resolve. Are both reports referring to the same
-product? If so, does 1.4.0 belong to the affected range? The matcher will answer
-those later. Reading a description is not that comparison, and a high severity
-score does not supply the missing inventory.
-
-Now consider a third report: the legacy server runs Lab Web, but its version is
-missing. The advisory is just as severe for that server. Nevertheless, we cannot
-place its installation inside or outside the range. Our answer must preserve the
-gap: UNKNOWN.
-
-This gives us the first rule for reasoning about the implementation: **before
-accepting a conclusion, identify the source reports it needs.** If a required
-report is missing or ambiguous, adding more confident prose does not complete the
-argument.
-
-The reports arrive as JSON files today. A later feed could deliver them over HTTP.
-That changes how the information arrives, not which questions must be answered.
-
-## 2. Keep what a source said separate from what we infer
-
-Suppose a week later someone asks why web-01 was marked affected. “The system said
-so” would be a poor answer. We should be able to show the advisory we used, the
-inventory observation we used, and the comparison that connected them.
-
-This is why the first domain object is **Evidence**. In VulnOps, evidence means an
-attributable observation: what was reported, its subject, its source, and when it
-was observed. It does not mean a fact that has been proven true.
-
-For our investigation, we need at least these two observations:
-
-| Observation | What it lets a reviewer inspect |
+| Business requirement | Consequence for the design |
 | --- | --- |
-| Advisory observation | Which source reported the affected product and range |
-| Inventory observation | Which collector reported the installation on web-01 |
+| Explain an asset's assessment | Preserve the source observations and reference them from conclusions |
+| Accept different intelligence and inventory formats | Translate inputs into common internal models |
+| Make independent decisions for different assets | Track a case for each relevant vulnerability/asset pair |
+| Avoid clearing assets on incomplete information | Preserve UNKNOWN rather than defaulting to safe |
+| Govern work and reconstruct its progress | Validate lifecycle transitions and retain their events |
+| Continue after the application exits | Store authoritative records in PostgreSQL |
 
-Each observation receives a UUID. Later conclusions carry those IDs so a reviewer
-can follow the reasoning backwards. We will use **E-advisory** and **E-inventory**
-as readable labels; the running system uses UUIDs, not these labels.
+Day 1 implements these consequences using synthetic fixtures. It has no live-feed
+scheduler, agent runtime, LangGraph dependency, model memory, production executor,
+or actual patch-validation service. Later lifecycle states and optional references
+are declared contracts for future work, not evidence those services exist. The lab
+containers are inert stand-ins, not real vulnerable installations.
 
-The advisory observation in the current adapter contains the source record as its
-claim, the fixture location, publication/retrieval times, and a hash of the original
-file bytes. The inventory observation is scoped to its asset and supports the
-components reported on that asset. A conclusion can therefore refer to both sides
-without copying the complete source records into every case.
+Keep three responsibilities in mind: **sources report, rules interpret, and the
+application records controlled work**. PostgreSQL is authoritative for what the
+system has committed. That does not make a stored source claim factually true.
 
-Why retain the reports after calculating the answer? Because the answer may need
-to change. Imagine a later inventory correction reports 2.0.0 instead of 1.4.0.
-Preserving the earlier observation lets us explain the earlier result. Replacing
-it silently would make the old decision appear inexplicable. Day 1 rejects changed
-snapshots rather than implementing this correction workflow; reconciliation is
-future work.
+We can now place those responsibilities in the running application.
 
-The actual adapter hashes exact file bytes, while the claim contains serialized
-parsed JSON. The retained fixture provides the original bytes. A hash helps detect
-that bytes differ; it cannot recover a missing file or prove that its author was
-correct. The fixture's observation time is fixed for repeatability, whereas a live
-collector will need real retrieval times.
+## 2. The whole application: a coordinator with rules and adapters
 
-The [Evidence model](../src/vulnops/domain/evidence.py) checks that attribution is
-nonblank and timestamps include timezones. It also rejects unexpected fields and
-out-of-range confidence values. These checks make a record usable. They do not
-prove freshness, authenticity, or accuracy.
+VulnOps currently runs as **one Python process connected to PostgreSQL**. A command
+starts the process, performs an operation, and exits. Source adapters, application
+services, matching, workflow, and repositories are modules inside that process.
+They are not independent network services or agents.
 
-We now have a way to preserve and cite the inputs. We have not yet compared them.
-The important distinction is **“the inventory reported 1.4.0”** versus **“we concluded
-that this installation is affected.”** Keeping those as separate statements is
-what will make the conclusion explainable.
+### Runtime collaboration
 
-## 3. Give source claims a common language
-
-We have preserved the reports, but a program still needs a consistent way to read
-their meaning. One source might represent a vulnerable interval as introduced and
-fixed events. Another might use different field names or list exact releases.
-We do not want every matching rule to understand every source's vocabulary.
-
-An **adapter** translates a supported source format into VulnOps's own types.
-**Canonical** means this shared internal representation. It does not mean verified
-truth. Translation changes the representation of a claim, not its authority.
-
-For the Lab Web advisory, the translation amounts to this:
-
-```text
-Vulnerability: CVE-2099-900001
-  Product claim:
-    identity: package vulnops-lab-web in the PyPI ecosystem
-    version claim: introduced 1.0.0; fixed 2.0.0; declared scheme semver
-    supporting observation: E-advisory
+```mermaid
+flowchart TB
+    Operator["Operator"]
+    subgraph Python["One Python application process"]
+        CLI["CLI: parse and present"] --> App["Application: coordinate the operation"]
+        App --> Sources["Source adapters: translate inputs"]
+        App --> Assessment["Assessment and matching: evaluate applicability"]
+        App --> Workflow["Workflow policy: validate progression"]
+        App --> Repo["Repositories: persist and reload"]
+        Repo --> Workflow
+    end
+    Operator --> CLI
+    Sources --> Fixtures["Local intelligence and inventory fixtures"]
+    Repo --> DB[("PostgreSQL")]
 ```
 
-The implementation divides this information into small objects because each part
-answers a different question:
+Arrows mean **invokes or accesses**, not data ownership or chronological order.
+Return values are omitted. Domain models are the values exchanged between these
+modules; they are not another running service. Application composition also opens
+and commits the tenant transaction.
 
-- **Vulnerability** identifies the disclosed problem and groups what sources report
-  about it. It can have several affected products.
-- **AffectedProduct** keeps one product together with its version claims and their
-  supporting evidence. This prevents one product's fix from being applied to another.
-- **ProductIdentity** expresses which product is meant. Here it includes
-  `pkg:pypi/vulnops-lab-web`, a Package URL identifying the package and ecosystem.
-- **VersionConstraint** expresses the reported release boundaries. Here it records
-  introduced 1.0.0 and fixed 2.0.0. Representing those boundaries does not compare them.
+The **application coordinator** is the organising centre. It chooses the sequence
+of source loading, assessment, case planning, persistence, and verification. In the
+persisted demo, this responsibility is split between composition in
+[bootstrap.py](../src/vulnops/application/bootstrap.py) and the use-case functions in
+[walking_skeleton.py](../src/vulnops/application/walking_skeleton.py). The CLI invokes
+that operation and presents its result.
 
-To see why this grouping matters, imagine the same advisory also affected a second
-product whose fix was 5.0.0. We would add a second AffectedProduct with its own
-identity, range, and evidence. A single fixed-version field on the vulnerability
-would no longer have a clear meaning.
+The two rule modules answer different questions. Assessment asks what the supplied
+product/version claims imply for an asset. Workflow asks whether a requested case
+transition is permitted. Both can operate without PostgreSQL. Repositories invoke
+workflow policy again when applying a change to the stored case; a plan calculated
+in memory does not override authoritative current state.
 
-The canonical fields are convenient for computation; Evidence preserves the
-attribution and supporting source content. You will see some information on both
-sides deliberately: the matcher needs a structured range, and the reviewer needs
-to inspect where that range came from. The canonical product claim references
-E-advisory to keep the connection.
+Adapters handle differences at the edges. Source adapters understand external field
+names and produce domain values. Repositories understand SQLAlchemy/PostgreSQL and
+return domain values. Keeping those responsibilities at the edges allows business
+rules to be tested without a feed, a database connection, or a model provider.
 
-In this repository, [FixtureVulnerabilitySource](../src/vulnops/sources/fixtures.py)
-reads an explicitly supported OSV-like fixture subset and returns a canonical
-Vulnerability together with its Evidence. That pair is the existing source
-boundary. A future live adapter can produce the same pair; the downstream matcher
-should not need to know whether its input came from disk or a feed.
+### Code dependencies and the boundaries they preserve
 
-The adapter also retains CVSS, KEV, and EPSS as separate observations. They describe
-severity, catalog membership, and a dated exploitation forecast respectively.
-None reports which version is on web-01. They therefore cannot replace either side
-of our applicability comparison, and Day 1 does not combine them into a risk score.
+The runtime diagram is not an import graph. These are the important dependencies
+in the current code:
 
-At this point we can say exactly what the source claims, in a form the program can
-use, and show where it came from. We still have no enterprise affectedness conclusion.
-Our next step is to build the inventory side of the comparison.
+| Code area | Depends on | Boundary preserved |
+| --- | --- | --- |
+| `cli.py` | Application entry points and presentation/error types | Command handlers do not implement matching or lifecycle policy |
+| `application/` | Source implementations, rules, domain values, repositories and session composition | Coordinates a complete operation and its transaction |
+| `sources/` | Source schema parsing and domain models | Downstream rules do not inspect source dictionaries |
+| `matching/`, workflow transition policy | Domain values and shared enums | Evaluation does not perform database writes or call an LLM |
+| `persistence/` | Domain values, workflow policy, SQLAlchemy | Stored changes obey policy; ORM records stay inside persistence |
+| `domain/` | Pydantic and domain/shared types | Source formats, ORM sessions, and orchestration are excluded |
 
-## 4. Connect a product to an installation on an asset
+These are selected dependency directions, not a claim of complete package isolation.
+For example, the case model imports CaseState from `workflow/states.py`. Application
+composition currently imports concrete fixture and PostgreSQL implementations.
+The source protocol and demo/inspection repository protocols supply selected seams;
+not every collaborator has a generic plug-in interface.
 
-An advisory's product is shared: the same Lab Web release may run in many places.
-An installation is specific: web-01 reportedly runs one particular version.
-VulnOps therefore separates **Asset** from **InstalledComponent**.
+The source seam is explicit. [VulnerabilitySource](../src/vulnops/sources/base.py)
+returns canonical vulnerability records with their Evidence. Its actual declaration is:
 
-An Asset is the enterprise resource we care about. It holds its environment,
-exposure, business service, criticality, and owner. An InstalledComponent is a
-reported installation on that asset, with product identity, version, discovery
-source/time, and evidence references.
-
-For web-01, the inventory says:
-
-```text
-Asset: asset-web-01
-  context: production, internet-facing, business criticality CRITICAL
-  installation: Lab Web 1.4.0
-  installation: Lab Common 1.0.0
+```python
+@runtime_checkable
+class VulnerabilitySource(Protocol):
+    def fetch(self) -> Iterable[SourcedVulnerability]:
+        """Return canonical observations plus the evidence needed to persist them."""
+        ...
 ```
 
-This answers two different questions. Components tell us what software could be
-affected. Asset context will help decide how urgently to act. Production exposure
-does not alter whether 1.4.0 belongs to a vulnerable range, and development status
-does not make the same version unaffected. Prioritisation will need both kinds of
-information later.
+The returned envelope separates the normalized record from the observations that
+support it. Replacing fixtures with a live source can preserve this contract;
+retrieval, freshness, and update reconciliation still require additional work.
+
+This map tells us where behaviour belongs. To understand what passes between the
+parts, we next need the domain model.
+
+## 3. The domain model: two descriptions joined into one operational case
+
+The enterprise question has two sides. A vulnerability describes a software problem
+and the products/releases it reportedly affects. An asset describes an enterprise
+resource and its reported installations. Neither side alone identifies an affected
+enterprise asset.
+
+### Relationships before fields
 
 ```mermaid
 flowchart LR
-    AD["Advisory"] --> P["Lab Web product and affected range"]
-    IN["Inventory"] --> A["web-01"]
-    A --> W["Lab Web installation: 1.4.0"]
-    A --> C["Lab Common installation: 1.0.0"]
-    P -. "compare identity and version" .-> W
-    P -. "compare identity and version" .-> C
+    V["Vulnerability"] -->|contains| AP["AffectedProduct: identity and version claims"]
+    A["Asset"] -->|contains| IC["InstalledComponent: identity and installed version"]
+    C["VulnerabilityCase"] -->|references one| V
+    C -->|references one| A
+    Event["CaseEvent"] -->|records a change to| C
+    AP -. "evidence IDs" .-> Evidence["Evidence"]
+    IC -. "evidence IDs" .-> Evidence
+    C -. "evidence IDs" .-> Evidence
+    Event -. "evidence IDs" .-> Evidence
 ```
 
-The two dotted arrows matter: we must consider each reported component. Excluding
-Lab Common from this advisory will not say anything about the Lab Web installation.
+Solid arrows are the labelled business relationships. Dotted arrows are provenance
+references. This is a conceptual view, not a database schema; additional evidence
+references on assets, vulnerabilities, and scoring observations are omitted.
 
-Each component carries its owning asset's UUID. If another asset's components are
-attached to web-01, the assessment entry point revalidates ownership and rejects
-them. This is a security boundary: otherwise a vulnerable server could inherit a
-fixed server's result. Initial validation is insufficient because nested Python
-lists can be modified later. [ADR-012](decisions/ADR-012-assessment-boundary-revalidation.md)
-records the concrete issue and fix.
+**Vulnerability** groups source claims about a disclosed problem. Its internal UUID
+is separate from its optional CVE identifier. An **AffectedProduct** groups one
+ProductIdentity, its VersionConstraints, and applicability evidence. ProductIdentity
+supports PURL, CPE, ecosystem/package, and names. VersionConstraint represents exact,
+introduced, last-affected, and fixed boundaries with a declared scheme and source
+status. The representations retain a source's meaning; comparison belongs to rules.
 
-VulnOps consumes a small snapshot rather than taking ownership of the entire CMDB.
-Upstream inventory remains responsible for discovery and its claims' accuracy.
-An owner name on the snapshot is business context, not authenticated approval.
+In our fixture, this grouping means: the package `pkg:pypi/vulnops-lab-web`, affected
+from 1.0.0, fixed in 2.0.0, under explicit `semver`. If the CVE names a second product
+with a different fix, it gets another AffectedProduct. A single vulnerability-wide
+fixed-version field would lose that association.
 
-## 5. Make the comparison in two steps
+**Asset** holds enterprise context such as production environment, exposure,
+business criticality, and owner. **InstalledComponent** holds one reported
+installation, its owning asset ID, product identity, version, discovery information,
+and evidence. web-01 contains Lab Web 1.4.0 and Lab Common 1.0.0. An asset's criticality
+is distinct from a vulnerability's severity; an owner label is distinct from approval
+authority. VulnOps consumes minimal inventory snapshots rather than becoming a CMDB.
 
-We now have the inputs for a component finding. First, establish product identity.
-Then, if identity matches, interpret the installed version under supported rules.
-Keeping this order avoids a basic mistake: a version number means little until we
-know which product it belongs to.
+### From claims to findings
 
-For Lab Web, the advisory and component both supply
-`pkg:pypi/vulnops-lab-web`. The product matcher returns MATCH using PURL. It favours
-supported structured identifiers over names, while retaining contradictions.
-If PURL and CPE disagree, priority does not allow us to ignore the disagreement;
-the result is UNKNOWN.
+**Evidence** is an independently identified, attributable observation. It preserves
+what a source said, about which subject, and when it was observed. The adapter also
+retains source location and exact-file hash. A UUID makes a claim referenceable;
+a hash identifies bytes. Neither establishes source truth or freshness.
 
-Next, the version matcher evaluates the explicit `semver` constraint. Introduced
-is inclusive; fixed is exclusive:
+The canonical Vulnerability and Asset make those observations computable. They
+reference Evidence so later interpretation remains traceable to its source. This
+is why some information appears both in a structured field and in source content:
+the rule needs a structured range, while a reviewer needs its original basis.
 
-```text
-1.0.0 [------------- 1.4.0 -------------) 2.0.0
-       included in the affected range     outside the affected range
-```
+**AffectedResolution** interprets one component/product pair. **AssetAssessment**
+combines those pair findings for the whole asset, retaining comparisons, reasons,
+methods, provenance, and completeness/candidate information. These are computed
+objects, not extra database tables. The demo retains serialized assessment details
+in an event reason, alongside the case's status and evidence references.
 
-It parses numeric major/minor/patch tuples, so the question is whether
-`(1, 0, 0) <= (1, 4, 0) < (2, 0, 0)`. That is true. The finding is AFFECTED,
-supported by E-advisory and E-inventory.
+CVSS, KEV, and EPSS remain separate observations on the vulnerability. Severity,
+catalog membership, and a dated forecast provide different context. None supplies
+an installed version or directly determines an asset's risk priority today.
 
-On web-02, the reported version is 2.0.0. It is at the excluded fixed boundary, so
-this pair returns NOT_AFFECTED. On legacy-01, no version is known; the comparison
-returns UNKNOWN.
+### From a finding to tracked work
 
-The result object, **AffectedResolution**, includes the component and asset,
-matching method, reason, and evidence references. Its claim is deliberately scoped:
-*this component/product pair, under these source claims*. It has not cleared an
-entire asset or changed a workflow state.
+A **VulnerabilityCase** connects one vulnerability to one asset, unique within the
+tenant. It lets web-01, web-02, dev-01, and legacy-01 retain different outcomes and
+progress without changing the shared advisory record.
 
-Version interpretation is narrow today. Plain three-part releases are supported
-under explicit `semver`; prereleases, epochs, vendor suffixes, and unsupported
-schemes are not ordered. Exact opaque equality is supported, but unequal opaque
-strings cannot establish exclusion. An unknown fix also does not imply safety:
-a supported range introduced at 1.0.0 can still establish that 1.4.0 is affected.
+The case has two independent axes:
 
-You can now reason about a new input without guessing what the code will do. A
-missing version blocks the version step. Conflicting identity blocks the identity
-step. A high confidence score repairs neither gap.
-
-## 6. Decide what the comparisons support for the whole asset
-
-web-01 has two component findings: Lab Web matches and is affected; Lab Common is
-a different structured product and is excluded. The second finding does not cancel
-the first. Asset assessment has to combine both.
-
-The current **AssetAssessment** policy checks uncertainty first. Any UNKNOWN
-comparison, or no comparisons at all, produces UNKNOWN. Otherwise, a positive
-comparison produces AFFECTED. If every comparison excludes affectedness, a negative
-asset conclusion additionally requires explicit inventory completeness evidence.
-Without that completeness claim, the outcome is UNKNOWN.
-
-Why does a negative need more than a positive? A supported positive identifies an
-affected installation. To conclude that the asset has no affected installation,
-we also need a basis for believing relevant inventory was not omitted. In this
-lab, asset-scoped inventory evidence explicitly claims
-`component_inventory_complete=True`. The claim is input to the policy, not proof
-that a real collector is reliable.
-
-This gives our three outcomes:
-
-| Asset | Reasoning | Asset assessment |
+| Field | Question it answers | web-01 at creation in this demo |
 | --- | --- | --- |
-| web-01 | Lab Web is affected; Lab Common is different; neither comparison is unknown | AFFECTED |
-| web-02 | Lab Web is fixed; Lab Common is different; complete inventory supports the exclusions | NOT_AFFECTED |
-| legacy-01 | Lab Web's version is missing, even though the component list is claimed complete | UNKNOWN |
+| `affected_status` | What did assessment conclude? | AFFECTED |
+| `state` | Which lifecycle stage is recorded? | DISCOVERED |
 
-There is a subtle consequence of checking uncertainty first: a confirmed affected
-component plus another UNKNOWN comparison yields an UNKNOWN **asset assessment**
-today. The positive finding remains in the result's comparisons. This is the
-implemented conservative policy, not a claim that positive evidence disappeared.
+The demo computes assessment before constructing the case. It then records workflow
+progress. Priority and plan/approval/verification references remain unset. An optional
+UUID is a structural hook, not an authenticated approval or completed verification.
 
-Do not confuse that rule with combining version ranges for one pair. Within one
-pair, supported affected evidence can establish a positive despite an unsupported
-sibling range unless an explicit exemption conflicts. Different aggregation scopes
-have different rules; [the matcher](../src/vulnops/matching/version_matcher.py) and
-[asset assessment](../src/vulnops/application/assessment.py) enforce them separately.
+A **CaseEvent** records a lifecycle change: old/new state, actor, reason, time,
+evidence, and correlation ID. Current case state and historical events have different
+jobs. Updating the current snapshot must not rewrite the earlier explanation.
 
-Assessment also determines whether the asset is a candidate for a case. The lab's
-API and database assets have different structured products for this CVE; they
-remain stored inventory but receive no case in this demo. Ambiguity remains a
-candidate rather than being filtered away as safe.
+We now have the static structure and business relationships. The next section follows
+those same collaborators and objects through one invocation.
 
-We have now crossed the first arrow in the mental model. We can explain what was
-reported and what our rules conclude for each relevant asset. We next need to
-track work on those conclusions without mixing the assets together.
+## 4. Execution: from the selected fixture to committed readback
 
-## 7. Track the conclusion in a case
+We will follow CVE-2099-900001 and web-01. For readability, **V** means its canonical
+vulnerability, **A** means the web-01 asset, **C** means the case for V × A, and
+**E-advisory/E-inventory** mean their supporting observations. These are teaching
+labels for UUID-backed records, not IDs accepted by the CLI.
 
-A shared vulnerability needs independent operational records. web-01 needs work,
-web-02 has evidence for exclusion, and legacy-01 needs investigation. One global
-status on the CVE could not express all three.
-
-A **VulnerabilityCase** is one vulnerability × one asset, unique within a tenant.
-It holds the assessment, evidence references, exposure, lifecycle state, and
-optional priority/plan/approval/verification references. Those optional references
-are future hooks; an ID does not perform or authenticate the operation it names.
-
-Two fields are particularly easy to confuse:
-
-- `affected_status` records what assessment concluded.
-- `state` records progress through the controlled lifecycle.
-
-In this demo, assessment happens first. The application therefore creates web-01's
-case with `affected_status=AFFECTED` and `state=DISCOVERED`. There is no contradiction:
-we already calculated applicability, while the recorded workflow is just beginning.
-Its priority is still None because no prioritisation decision has been made.
-
-A definitive AFFECTED or NOT_AFFECTED case requires evidence IDs. Persistence also
-checks that references resolve inside the tenant. This prevents an invented UUID
-from supplying missing provenance, although existence alone does not establish
-that evidence is factually correct or suitable.
-
-Cases let us preserve the distinction between assets throughout future remediation.
-If web-01 is later verified fixed, dev-01's case must still be assessed and handled
-on its own. Shared CVE identity does not imply shared operational progress.
-
-## 8. Advance work through explicit gates
-
-Creating a case is not permission to assign any later state. The lifecycle asks
-which transition is legal from the current stage and which prerequisites support
-it. The Day 1 demo records this path:
+### The complete operation
 
 ```mermaid
-flowchart TD
+sequenceDiagram
+    participant CLI as CLI
+    participant App as Application coordinator
+    participant Source as Fixture adapters
+    participant Assessment as Assessment and matching
+    participant Workflow as Workflow policy
+    participant Repo as Repositories
+    participant DB as PostgreSQL
+    CLI->>App: run_walking_demo(lab_dir, tenant_id)
+    App->>Source: Load selected vulnerability
+    Source-->>App: V and source Evidence
+    App->>DB: Begin tenant transaction
+    App->>Repo: Save source Evidence, then V
+    Repo->>DB: Create or exact replay
+    App->>Source: Load inventory inside prepare_demo
+    Source-->>App: Assets, components, inventory Evidence
+    App->>Assessment: Assess assets
+    Assessment-->>App: Asset findings
+    App->>Workflow: Validate transitions for initial cases
+    Workflow-->>App: Replacement snapshots and planned events
+    App->>Repo: Save inventory and initial cases
+    loop Each new planned event
+        App->>Repo: append_case_event(event)
+        Repo->>DB: Lock current case
+        Repo->>Workflow: Validate transition from stored state
+        Workflow-->>Repo: Replacement case and event
+        Repo->>DB: Update case and insert event in savepoint
+    end
+    App->>Repo: Request prohibited approval transition
+    Repo->>Workflow: Validate AFFECTED_CONFIRMED to APPROVED
+    Workflow-->>Repo: TransitionError
+    Repo-->>App: TransitionError
+    App->>Repo: Check unchanged state/history and save denial Evidence
+    App->>Repo: Verify expected records before commit
+    App->>DB: Commit outer transaction
+    App->>Repo: Reload and verify in a new tenant transaction
+    Repo->>DB: Read committed records and history
+    Repo-->>App: Verified result
+    App-->>CLI: Verified report eligible for PASS
+```
+
+Here arrows mean ordered calls/results. The diagram groups helpers by architectural
+responsibility and omits repeated exact saves and individual readback calls. This is
+the successful operation, including its required policy denial; any unexpected
+validation, write, commit, or verification failure prevents PASS.
+
+### Translate and preserve the inputs
+
+The CLI dispatches `demo` to `run_walking_demo`. `load_demo_vulnerability` selects
+one CVE through FixtureVulnerabilitySource. The adapter parses its supported
+OSV-like subset, computes a SHA-256 digest of exact source bytes, attributes the
+observations, and returns V plus four source/enrichment Evidence records.
+
+The application opens a tenant transaction and saves Evidence before V, because
+V's references must resolve. These writes are not committed yet. This ordering is
+visible in the actual composition code:
+
+```python
+        with tenant_session(engine, tenant_id) as session:
+            repository = Repositories(session, tenant_id)
+            for evidence in source.evidence:
+                repository.save_evidence(evidence)
+            repository.save_vulnerability(source.vulnerability)
+            plan = prepare_demo(lab_dir, source=source)
+            blocked = persist_demo(repository, plan)
+            verify_demo(repository, plan, blocked, tenant_id)
+```
+
+The source is already translated before this excerpt. `prepare_demo` then loads
+inventory, computes assessments, and plans cases/events. `persist_demo` applies that
+plan through repositories. The context in
+[bootstrap.py](../src/vulnops/application/bootstrap.py) commits only when its body
+finishes successfully; the function then verifies committed data in another context.
+
+### Evaluate the installation, then the asset
+
+The inventory adapter returns A, its installations, and E-inventory. The application
+passes V, A, and resolved evidence into `assess_asset`. That boundary revalidates
+complete snapshots and ownership before comparing each component with each affected
+product. It rejects unresolved provenance and conflicting contents for one evidence ID.
+
+For A's Web installation, product identity matches the advisory PURL. The version
+matcher uses numeric release tuples to evaluate
+`(1, 0, 0) <= (1, 4, 0) < (2, 0, 0)`. Introduced is inclusive and fixed is exclusive.
+The pair finding is AFFECTED, with E-advisory and E-inventory references.
+
+For A's Common installation, the structured product is different. That pair returns
+NOT_AFFECTED. It excludes Common from this product claim; it does not cancel Web's
+positive or clear the whole asset.
+
+Asset aggregation checks uncertainty first. No comparisons or any UNKNOWN comparison
+produce UNKNOWN. Otherwise a supported positive produces AFFECTED. Otherwise, all
+exclusions require explicit asset-scoped complete-inventory evidence to produce
+NOT_AFFECTED; without it the result is UNKNOWN. A listed component can still have an
+unknown version, so component-list completeness does not resolve legacy-01.
+
+There are two scopes to remember. Within one pair's version ranges, a supported
+positive can survive an unsupported sibling range unless an explicit exemption
+conflicts. Across component/product comparisons, asset policy preserves any UNKNOWN,
+even alongside a positive. The retained comparisons show why. Confidence is never
+a vote that erases uncertainty.
+
+### Plan the case and its permitted progression
+
+`prepare_demo` creates C with AFFECTED assessment and DISCOVERED state, then uses the
+pure transition service to plan ENRICHED, ASSET_MATCHED, and AFFECTED_CONFIRMED. It
+returns new snapshots and CaseEvents without database writes. C's correlation ID,
+event IDs, reasons, and logical times are stable for exact replay.
+
+```mermaid
+flowchart LR
     D["DISCOVERED"] --> E["ENRICHED"]
     E --> M["ASSET_MATCHED"]
     M --> A["AFFECTED_CONFIRMED"]
     M --> N["NOT_AFFECTED"]
     M --> I["MANUAL_INVESTIGATION"]
-    A -. "future controlled stages" .-> F["Prioritisation, planning, testing, approval, deployment, verification"]
 ```
 
-The solid edges are executed by the demo. The dotted branch summarises future
-capabilities: the complete lifecycle graph is already declared, but those services
-are not implemented. The diagram omits other legal alternate paths.
-`ALLOWED_TRANSITIONS` in [transitions.py](../src/vulnops/workflow/transitions.py)
-is the sole complete edge policy.
+These are the demo's executed edges, not the complete lifecycle graph. Later stages
+and alternate paths are defined in `ALLOWED_TRANSITIONS`; their services remain
+outside this implementation. The ASSET_MATCHED event reason carries the assessment.
+The demo uses SYSTEM actor `vulnops-day1-demo-v1` and fixture time
+`2026-10-25T08:00:00Z` plus one second per step, not actual runtime elapsed time.
 
-A request supplies the case, expected current state, target state, actor, reason,
-and evidence. The pure `transition_case` function checks these and returns a new
-snapshot with a **CaseEvent**. It does not write a database. Expected-state checking
-makes stale work explicit: a worker expecting ASSET_MATCHED cannot quietly apply
-its request after another worker has advanced the case.
+Candidate selection prevents unrelated structured products from generating cases.
+For this selected CVE, API/database assets are stored inventory but non-candidates.
+The final candidate cases are:
 
-The demo's three web-01 events record DISCOVERED → ENRICHED → ASSET_MATCHED →
-AFFECTED_CONFIRMED. Every event retains old/new state, actor, reason, time, evidence,
-and correlation. The ASSET_MATCHED reason includes serialized assessment details;
-there is no separate typed finding table today.
+| Asset | Assessment | Final recorded state | Basis |
+| --- | --- | --- | --- |
+| web-01 | AFFECTED | AFFECTED_CONFIRMED | Web 1.4.0 is inside the range; other pair is excluded |
+| web-02 | NOT_AFFECTED | NOT_AFFECTED | Web 2.0.0 is at the fixed boundary; complete inventory supports all exclusions |
+| dev-01 | AFFECTED | AFFECTED_CONFIRMED | Development context does not change applicability |
+| legacy-01 | UNKNOWN | MANUAL_INVESTIGATION | Missing version blocks supported comparison |
 
-Now try to jump from AFFECTED_CONFIRMED to APPROVED. The graph rejects that edge.
-Being affected supplies no planning, test, or approval authority. Even on a legal
-approval edge, structural HUMAN/approval-reference checks do not authenticate a
-person or bind approval to an exact action; those are future controls.
+### Apply the plan and prove it survived commit
 
-This is where a future orchestrator must stop being authoritative. It can request
-a transition. Application policy decides whether that transition is allowed,
-regardless of what the orchestrator remembers or a model recommends.
+`persist_demo` saves inventory evidence/assets, creates missing DISCOVERED cases,
+and appends planned events through repositories. For each new event, the repository
+locks the current stored case and revalidates the edge. The result is still subject
+to the current database state, regardless of what the plan expected.
 
-## 9. Make state and its explanation durable together
+The demo also requests C's forbidden AFFECTED_CONFIRMED → APPROVED transition. It
+requires that specific edge denial, checks unchanged state/history, and explicitly
+saves SYSTEM Evidence of the attempt. There is no generic denied-operation logger.
 
-A case snapshot answers “where are we now?” Historical events answer “how did we
-get here?” If a crash leaves only one of those writes, the system tells two
-different stories. The case update and its event must commit atomically.
+After exact pre-commit checks, the outer transaction commits. A new tenant transaction
+reloads and compares source records, assets, cases, evidence, and histories. Only
+then does the CLI emit JSON, the blocked-edge line, and `DAY-1 ACCEPTANCE: PASS`.
+The result is one vulnerability, six assets, twelve components, four cases, twelve
+CaseEvents, and eleven Evidence records. These are fixture counts, not a universal
+schema requirement.
 
-PostgreSQL is the authoritative store. The repository loads the tenant's current
-case under a lock, applies the pure transition policy, checks evidence and expected
-state/revision, then writes the replacement and event together.
+The successful execution connects the architecture to the business outcome: the
+team can inspect distinct asset conclusions and trace their permitted progression.
+To maintain that outcome under failure, we need to understand what persistence and
+policy actually guarantee.
 
-```mermaid
-sequenceDiagram
-    participant App as Application
-    participant Repo as Repository
-    participant Policy as Transition policy
-    participant DB as PostgreSQL
-    App->>Repo: Request transition with expected state
-    Repo->>DB: Open savepoint and lock tenant case
-    DB-->>Repo: Current snapshot and revision
-    Repo->>Policy: Validate current case and request
-    alt Denied
-        Policy-->>Repo: TransitionError
-        Repo->>DB: Roll back savepoint
-        Repo-->>App: Denied; state and history unchanged
-    else Permitted
-        Policy-->>Repo: Replacement snapshot and event
-        Repo->>DB: Check evidence and write snapshot/event
-        alt Either write fails
-            Repo->>DB: Roll back both writes to savepoint
-            Repo-->>App: Error
-        else Both writes succeed
-            Repo->>DB: Release savepoint
-            App->>DB: Commit outer tenant transaction
-        end
-    end
+## 5. Correctness depends on preserving the boundaries
+
+The normal path alone cannot guarantee a coherent case. We must also preserve its
+meaning when inputs are malformed, workers are stale, or one write fails.
+
+### Validation establishes a usable record, not truth
+
+Strict Pydantic domain contracts reject unexpected fields, invalid identifiers,
+naive timestamps, and invalid scores. Evidence requires nonblank attribution;
+optional internal source URIs can be absent. Source-specific metadata remains
+extensible. Python inputs and JSON decoding have different native representations
+for UUIDs/enums/dates, so adapters must translate deliberately.
+
+Validated source containers still contain mutable lists. At assessment entry, full
+Asset/Vulnerability/Evidence snapshots are revalidated. This catches foreign-asset
+component injection, cleared nested provenance, and conflicting contents for one
+evidence UUID. The [security review](day01-security-review.md) records the actual
+bug behind this boundary. Revalidating a component alone cannot establish its
+relationship to the containing asset.
+
+Identity/version rules then limit what can be concluded. Structured identifier
+conflicts remain UNKNOWN; aliases do not establish fuzzy equivalence. Name-only
+matching cannot justify a definitive version-based exclusion. Ordering supports
+explicit plain three-part SemVer, with numeric comparison; prereleases, build
+metadata, epochs, suffixes, and unsupported schemes remain UNKNOWN. Literal exact
+equality is supported without a scheme, but unequal opaque strings cannot prove
+exclusion. An unknown fixed version does not clear a supported affected range.
+
+### Lifecycle policy protects progression
+
+The sole edge mapping is `ALLOWED_TRANSITIONS`. The pure transition service checks
+expected state, edge, actor, reason, evidence, time, and target prerequisites. It
+returns a replacement case/event pair. Frozen case objects discourage ordinary
+assignment, but they are not a sandbox against trusted bypass methods or raw SQL.
+
+The repository applies this policy to the locked stored case. Its actual boundary is:
+
+```python
+        with self._session.begin_nested():
+            row = self._locked_case(case_id)
+            result = validate_transition(case=_decode(VulnerabilityCase, row.payload), **request)
+            return self._store_transition(row, result)
 ```
 
-The savepoint protects the pair even if an outer caller catches an error. The
-outer transaction decides final commit. The demo appends preplanned events through
-`append_case_event`, which also enforces transition policy for each new event.
-It is not an alternate route around the gates.
+`_store_transition` resolves case evidence, compares old state/revision in the UPDATE,
+and inserts the event with the next sequence. The nested transaction is a savepoint:
+if insertion fails after the UPDATE, neither part of that transition survives, even
+if the outer caller catches the exception. The outer transaction still controls
+final commit. `append_case_event` applies the same policy for new historical entries;
+it accepts identical replay and rejects replacement content under an existing ID.
 
-For web-01, the current snapshot eventually says AFFECTED_CONFIRMED. Its first
-event still says DISCOVERED → ENRICHED. The application exposes no normal history
-update/delete, and the restricted runtime role cannot rewrite/delete events.
-Database owners remain capable of altering data; this is append-oriented history,
-not an immutable ledger or full event-sourced system.
+### Persistence keeps identity, context, and history aligned
 
-SQLAlchemy models map the domain into six PostgreSQL tables, using JSONB snapshots
-with relational identities and constraints. Repositories return domain objects so
-matching does not depend on ORM sessions. Tenant filters, forced row-level security,
-composite references, and transaction-local tenant context protect scope. Today's
-local tenant selection is trusted configuration, not authentication.
+PostgreSQL stores JSONB domain snapshots with relational identities, constraints,
+revision/sequence columns, and lookup fields. SQLAlchemy records remain inside
+persistence; repositories revalidate and return domain objects. This trades mapping
+and migration work for an ORM-independent business model. The table mapping is in
+Appendix A.
 
-Durability also changes how we handle retries. The demo uses stable IDs and content:
-repeating identical input reuses records and events. Changed contents conflict
-instead of overwriting them. Exact replay is implemented; refresh/reconciliation
-is not. A new live adapter cannot assume that saving an updated CVE silently merges
-it into an existing vulnerability.
+Every operation uses an explicit tenant transaction. `tenant_session` sets
+transaction-local `app.current_tenant_id`; repository construction requires matching
+session context. Queries also filter tenant IDs, references use tenant-aware keys,
+and forced RLS applies database isolation. Runtime credentials differ from migration
+owner credentials. Authentication of the caller choosing tenant/actor is still a
+future boundary; RLS does not authenticate a HUMAN enum or a CLI argument.
 
-## 10. Follow the actual code once the reasoning is clear
+Saves create or exactly replay snapshots. A CVE or namespaced external asset ID can
+resolve to an existing canonical identity; callers must use returned objects.
+Changed content raises RepositoryConflict. `save_case` only accepts new/replayed
+DISCOVERED snapshots, not arbitrary progressed updates. There is no general refresh,
+reopen, or assessment-update command.
 
-The following complete Python example runs from the repository root without a
-database. It exposes each part of the investigation rather than dumping all fields:
+Current case state is authoritative; history explains it. Normal APIs and runtime
+grants prevent event UPDATE/DELETE, but database owners can still alter storage.
+This is append-oriented audit, not a tamper-proof ledger or a database rebuilt from
+events. Restart tests prove application-process durability, not backup restoration
+or database-server disaster recovery.
+
+These guarantees give us concrete diagnostic boundaries. A failed command is no
+longer an undifferentiated “system error”: we can ask which boundary rejected it
+and which transaction had reached commit.
+
+## 6. Diagnose failures through the same architecture
+
+Begin by recording the invoked command, selected tenant, code revision, fixture
+snapshot, stderr/exit status, and any successful report. Inspect the case and its
+history using the same tenant. Stable fixture timestamps are replay clocks, not
+wall-clock execution logs; distinguish a previous committed run from a new attempt.
+
+The CLI deliberately emits brief error messages. It does not expose a traceback,
+structured diagnostic log, model trace, or orchestration checkpoint. A broad CLI
+message may require a controlled reproduction at the named Python boundary to
+inspect its actual exception. Do not invent certainty about rollback from an exit
+code alone, and do not bypass isolation or policy to make a reproduction succeed.
+
+| Symptom | Boundary to inspect | Diagnosis and response |
+| --- | --- | --- |
+| “Unable to load lab snapshot” | Fixture adapter / SourceError | Check `--lab-dir`, manifest, selected CVE, source DTO fields, and supported range events. The adapter rejects malformed/duplicate/orphan/conflicting supported records. Reproduce `fetch()` to locate the validation cause. |
+| An asset is UNKNOWN | Identity/version rules and assessment | Inspect comparison methods/reasons, installed version, referenced observations, and completeness. UNKNOWN may be the correct result; repair missing evidence or implement tested semantics rather than force NOT_AFFECTED. |
+| Ownership or provenance validation fails | `assess_asset`, then repository reference checks | Revalidate the complete asset and compare each component's asset ID; resolve all referenced evidence in the tenant. A UUID with foreign or nonexistent evidence is not sufficient. |
+| A transition is denied or stale | Transition policy and repository state/revision | Compare requested expected state and target with stored case/history; check actor, reason, evidence and target prerequisites. Reread before making a new deliberate request; no automatic retry/recovery service exists. |
+| A repeat run reports invalid input/configuration | Snapshot equality / RepositoryConflict | The CLI groups ValueError subclasses under one message. Compare current fixtures, source hashes, and existing cases/history. Changed content or independently progressed cases require reconciliation; do not delete history or reseed to hide the conflict. |
+| A known record is absent or history is empty | Inspection tenant and identity | Confirm tenant and internal UUID, then the successful ingestion context. CLI not-found is intentionally not proof that a record exists in another tenant. Keep RLS and tenant filters enabled. |
+| “Database operation failed” | Engine configuration, migration and runtime role | Check local service readiness, database URLs, applied migration and role grants. Migration owner and runtime role serve different purposes. The generic SQLAlchemy error does not identify the exact cause; use controlled exception inspection. |
+| Demo exits without PASS | Pre-commit gate or committed readback | Compare expected cases/history through a fresh inspection transaction. Before-commit failure rolls the operation back; post-commit verification failure leaves records committed. Earlier runs may also explain existing rows. See the readback failure test below. |
+
+### Follow one diagnosis to its cause
+
+Suppose web-02 unexpectedly becomes UNKNOWN while the pair finding still excludes
+its fixed version. Follow the model from section 3: a pair exclusion is not an asset
+negative. Inspect AssetAssessment's `inventory_complete` and asset-scoped Evidence.
+If completeness is absent, policy intentionally refuses a whole-asset negative.
+The relevant code is `assess_asset`, not the SemVer comparator or the state machine.
+`test_missing_completeness_never_turns_exclusion_into_unaffected` in the
+[assessment tests](../tests/application/test_assessment.py) demonstrates the outcome.
+
+For a storage failure, follow section 4's commit boundary. The regression
+`test_event_insert_failure_rolls_back_state_even_if_caller_handles_error` in
+[the persistence tests](../tests/integration/test_persistence.py) injects audit-insert
+failure and proves the transition leaves neither updated state nor an event.
+`test_post_commit_readback_failure_never_prints_pass` in
+[the demo integration tests](../tests/integration/test_walking_skeleton.py) proves
+the different post-commit case: records remain but PASS is suppressed.
+
+There are no current hallucination or agent-loop diagnostics to operate. If a future
+model is involved, first separate its proposal from source evidence and authoritative
+commands. Adding such a runtime also requires its own bounded execution and
+observability design; existing event history is business history, not model memory.
+
+## 7. Evolve the system by changing the responsible boundary
+
+The architecture map tells us where a change belongs. Use it before selecting an
+agent framework or copying logic into a new interface. Preserve the source → finding
+→ controlled-work distinction and test the observable capability across boundaries.
+
+| Desired change | Existing seam and additional work | Contract to preserve |
+| --- | --- | --- |
+| Add CVE, CISA KEV, EPSS or vendor input | Implement source-specific translation into canonical records/Evidence; compose an explicit application ingestion operation. The demo is not that general operation. Define retrieval time, validation, source suitability, retention and refresh/reconciliation. | Downstream matching stays source-independent. Missing enrichment is absent, not a fabricated negative. Separate CVSS/KEV/EPSS observations remain attributable. |
+| Support another version scheme | Extend `version_matcher` under an explicit scheme with ecosystem fixtures and boundary tests. Product identity support alone is not version-ordering support. | Unsupported semantics remain UNKNOWN. Preserve pair/asset scope and conservative completeness rules. |
+| Add prioritisation | Introduce explicit asset-context policy and an authorised, audited application update. Current `priority=None` and progression prerequisites are hooks, not an implemented scorer. | Severity alone is not enterprise risk; a probabilistic output cannot directly assign authoritative priority. |
+| Refresh observations or reassess cases | Design versioned reconciliation and a specific assessment-update/reopen command. Define treatment of old evidence, histories, conflicts, and changed context. Existing save methods intentionally conflict. | Preserve prior explanations and case identity. Do not reset cases or rewrite old events. |
+| Add an operator console | Reuse or extend application operations; establish authenticated tenant/actor context before remote/multi-user use. | No second copy of matching/lifecycle rules in HTTP/UI handlers. CLI tenant selection is not authentication. |
+| Add AI assistance or orchestration | Introduce advisory proposals or coordination around application commands, with source references, bounded operation and observability. No agent runtime currently exists. | Checkpoints are execution context, not case authority. Do not give models raw sessions, write credentials, or arbitrary host execution. |
+| Add production execution | First establish immutable action specifications, authenticated human approval bound to exact actions, registered constrained tools, shared default-deny dispatch/kill switch, verification and rollback. | Approval UUIDs and later state names alone grant no authority. Recheck policy at the actual side-effect boundary. |
+
+The [Day 2 handoff](day02-handoff.md) identifies exact observation fields and current
+CVE/KEV/EPSS/vendor mapping examples. New source coverage must add representative
+fixtures and adapter tests. New version policy must add positive, negative,
+unsupported and contradictory cases. New application commands must add evidence,
+tenant, transition, durability and retry tests appropriate to their effects.
+
+Deprecation also crosses boundaries. Before removing a field, source, or component,
+identify its consumers, public commands, persisted JSONB snapshots, and historical
+events. Specify compatibility and migrations so old records remain inspectable.
+Change orchestration or interface code without transferring business authority.
+A material reversal needs a new ADR identifying the superseded decision and the
+migration implications.
+
+The [eight acceptance scenarios](../tests/acceptance/test_day01.py) are the minimum
+cross-layer regression boundary: affected with evidence, supported not-affected,
+unknown/investigation, observable illegal-transition denial, rejected missing/foreign
+provenance, fresh-process durability, exact replay, and independent asset outcomes.
+They use real PostgreSQL. Mock-only green tests cannot establish those guarantees;
+missing database configuration must fail acceptance rather than silently skip it.
+
+The important trade-offs are now visible in context: explicit mappings cost code,
+UNKNOWN costs investigation, cases cost records, PostgreSQL costs operations, and
+atomic audit costs transaction design. In return, the system can explain and govern
+asset-specific work. The [ledger](day01-decision-ledger.md) records the detailed
+alternatives, confidence and revisit triggers instead of repeating them here.
+
+## Appendix A. Code and storage reference
+
+Use these locations after understanding the diagrams. They are a navigation index,
+not additional architectural layers.
+
+| Concern | Implementation |
+| --- | --- |
+| Evidence and attribution | [domain/evidence.py](../src/vulnops/domain/evidence.py) |
+| Canonical vulnerability and CVSS/KEV/EPSS observations | [domain/vulnerability.py](../src/vulnops/domain/vulnerability.py) |
+| AffectedProduct and ProductIdentity | [domain/product.py](../src/vulnops/domain/product.py) |
+| VersionConstraint and source version status | [domain/version.py](../src/vulnops/domain/version.py) |
+| Asset and InstalledComponent | [domain/asset.py](../src/vulnops/domain/asset.py) |
+| VulnerabilityCase, AffectedStatus and exposure | [domain/case.py](../src/vulnops/domain/case.py) |
+| Source protocol/envelopes and fixture translation | [sources/base.py](../src/vulnops/sources/base.py), [sources/fixtures.py](../src/vulnops/sources/fixtures.py) |
+| Identity, versions and pair findings | [product_matcher.py](../src/vulnops/matching/product_matcher.py), [version_matcher.py](../src/vulnops/matching/version_matcher.py), [affected_resolver.py](../src/vulnops/matching/affected_resolver.py) |
+| Asset findings and application planning | [assessment.py](../src/vulnops/application/assessment.py), [walking_skeleton.py](../src/vulnops/application/walking_skeleton.py) |
+| Composition and inspection | [bootstrap.py](../src/vulnops/application/bootstrap.py), [inspection.py](../src/vulnops/application/inspection.py) |
+| Lifecycle states, events/actors and policy | [states.py](../src/vulnops/workflow/states.py), [events.py](../src/vulnops/workflow/events.py), [transitions.py](../src/vulnops/workflow/transitions.py) |
+| ORM models, transactions and repository commands | [models.py](../src/vulnops/persistence/models.py), [session.py](../src/vulnops/persistence/session.py), [repositories.py](../src/vulnops/persistence/repositories.py) |
+| Table constraints, RLS and grants | [0001_day1_persistence.py](../alembic/versions/0001_day1_persistence.py) |
+
+The six tables are `vulnerabilities`, `assets`, `installed_components`, `evidence`,
+`vulnerability_cases`, and `case_events`. Affected products/ranges and scoring
+observations are nested in vulnerability snapshots. Assets store their context,
+while ordered component rows are reconstructed into the Asset domain model. Case
+rows contain current state/revision; event rows have immutable domain payloads and
+per-case sequence. Evidence UUID arrays are resolved by application/repository
+checks, not universal database foreign keys on every provenance reference.
+
+The strict models use UUID identities and timezone-aware timestamps. Source
+VersionStatus describes a claim; AffectedStatus describes assessment. Missing values
+stay explicit. Source schema version identifies the primary input format; other
+source schema details belong in their Evidence metadata.
+
+## Appendix B. Run, inspect, and reproduce the example
+
+Use the [README's local setup](../README.md#local-postgresql-and-integration-tests)
+to sync dependencies, configure ignored `.env`, start PostgreSQL and apply migrations.
+Use a dedicated local/test database. The tracked example contains public loopback
+lab defaults, not production credentials. Application runtime uses DATABASE_URL;
+Alembic uses the separate migration-owner URL.
 
 ```bash
-uv run --locked python
+export VULNOPS_TENANT_ID=d383a693-f08c-504b-bf7e-d7008885b119
+uv run --env-file .env --locked vulnops demo
+uv run --env-file .env --locked vulnops vulnerability show CVE-2099-900001
+uv run --env-file .env --locked vulnops asset list
+uv run --env-file .env --locked vulnops case list
+uv run --env-file .env --locked vulnops case show 0ad1e3cb-e2a7-5357-a954-f84856de1415
+uv run --env-file .env --locked vulnops case history 0ad1e3cb-e2a7-5357-a954-f84856de1415
 ```
+
+The tenant is the dedicated demo tenant and the case UUID is C for this unchanged
+fixture. Other assets/cases use internal UUIDs returned by list commands. Set
+`--tenant-id <uuid>` before the resource command as an alternative to the environment
+variable. Lists support limit/offset; default limit is 100, maximum 1000.
+
+The demo writes synthetic state; the six inspection operations are read-only.
+Its output is JSON followed by blocked-edge/PASS text, not a single JSON document.
+JSON presentation escapes terminal controls in source content. Exit codes are 0 for
+success, 1 for source/database/acceptance failure, 2 for argument/input/configuration
+failure (including caught ValueError subclasses), and 3 for record-not-found.
+A valid empty list/history succeeds. See section 6 before interpreting a failure.
+
+To inspect the plan without a database, start `uv run --locked python` from the
+repository root and run this complete example:
 
 ```python
 from pathlib import Path
@@ -491,198 +647,80 @@ asset = next(a for a in plan.assets
              if a.external_id == "vulnops-lab:asset-web-01")
 assessment = next(a for a in plan.assessments if a.asset_id == asset.asset_id)
 case = next(c for c in plan.cases if c.initial.asset_id == asset.asset_id)
-product = plan.vulnerability.affected_products[0]
-
-print("Source claim:", product.product.purl)
-print("Affected interval:", product.version_constraints[0].introduced_version,
-      product.version_constraints[0].fixed_version)
-print("Reported installation:", asset.components[0].installed_version)
-print("Comparisons:", [c.status.value for c in assessment.comparisons])
-print("Asset conclusion:", assessment.status.value)
-print("Initial case:", case.initial.affected_status.value, case.initial.state.value)
-print("Recorded path:", [e.to_state.value for e in case.history])
+print([c.status.value for c in assessment.comparisons])
+print(case.initial.affected_status.value, case.initial.state.value)
+print([e.to_state.value for e in case.history])
 ```
 
 Expected output:
 
 ```text
-Source claim: pkg:pypi/vulnops-lab-web
-Affected interval: 1.0.0 2.0.0
-Reported installation: 1.4.0
-Comparisons: ['AFFECTED', 'NOT_AFFECTED']
-Asset conclusion: AFFECTED
-Initial case: AFFECTED DISCOVERED
-Recorded path: ['ENRICHED', 'ASSET_MATCHED', 'AFFECTED_CONFIRMED']
+['AFFECTED', 'NOT_AFFECTED']
+AFFECTED DISCOVERED
+['ENRICHED', 'ASSET_MATCHED', 'AFFECTED_CONFIRMED']
 ```
 
-This is a plan in memory. Follow these functions to see how it becomes durable:
+This is an in-memory plan, not proof of persistence. `uv run python lab/demo.py` is
+another database-free preview across all five fixtures; it does not print persisted
+Day 1 acceptance. The persisted demo neither starts Docker nor migrates implicitly.
 
-| Operation | Actual implementation | What it adds |
-| --- | --- | --- |
-| Read and translate sources | [FixtureVulnerabilitySource.fetch](../src/vulnops/sources/fixtures.py) | Canonical claims plus independently referenced Evidence |
-| Read inventory | [load_fixture_inventory](../src/vulnops/sources/fixtures.py) | Asset/component observations and ownership |
-| Evaluate one installation/product | [resolve_affected](../src/vulnops/matching/affected_resolver.py) | Identity/version finding and supporting references |
-| Assess one asset | [assess_asset](../src/vulnops/application/assessment.py) | Revalidation, provenance resolution, aggregation, candidate status |
-| Plan cases and events | [prepare_demo](../src/vulnops/application/walking_skeleton.py) | Initial cases and validated future snapshots/events |
-| Persist and probe rejection | [persist_demo](../src/vulnops/application/walking_skeleton.py) | Source/asset/case saves, legal event appends, retained denial observation |
-| Compose transactions and readback | [run_walking_demo](../src/vulnops/application/bootstrap.py) | Evidence-first persistence, outer commit, separate committed verification |
-| Present the operation | [cli.py](../src/vulnops/cli.py) | Arguments, dispatch, JSON, and exit status |
-
-The source protocol in [sources/base.py](../src/vulnops/sources/base.py) is
-`VulnerabilitySource.fetch() -> Iterable[SourcedVulnerability]`. Its envelope holds
-Vulnerability and `tuple[Evidence, ...]`. That is the integration seam, not a live
-HTTP client or an enrichment-refresh command.
-
-Here is a small excerpt of the actual persisted transition method in
-[repositories.py](../src/vulnops/persistence/repositories.py):
-
-```python
-        with self._session.begin_nested():
-            row = self._locked_case(case_id)
-            result = validate_transition(case=_decode(VulnerabilityCase, row.payload), **request)
-            return self._store_transition(row, result)
-```
-
-With the mental model in place, each line has a purpose: protect the operation,
-read authoritative current state, apply the shared gate policy, and store the
-snapshot/event pair.
-
-## Run the persisted investigation
-
-Follow the [README's PostgreSQL setup](../README.md#local-postgresql-and-integration-tests)
-to sync dependencies, configure the ignored local `.env`, start PostgreSQL, and
-apply migrations. The demo does not start Docker or migrate automatically.
+Run the full regression suite with `uv run --env-file .env --locked pytest`, or the
+three disjoint groups:
 
 ```bash
-export VULNOPS_TENANT_ID=d383a693-f08c-504b-bf7e-d7008885b119
-uv run --env-file .env --locked vulnops demo
-uv run --env-file .env --locked vulnops case list
-uv run --env-file .env --locked vulnops case history 0ad1e3cb-e2a7-5357-a954-f84856de1415
+uv run --locked pytest -m 'not integration and not acceptance'
+uv run --env-file .env --locked pytest -m 'integration and not acceptance'
+uv run --env-file .env --locked pytest tests/acceptance/test_day01.py
 ```
 
-The UUID on the last line is web-01's stable case ID for this unchanged fixture.
-The demo writes to the dedicated synthetic tenant; inspection needs the explicit
-tenant and remains read-only. Tenant choice is not a login.
+Both test database URLs are required for complete acceptance. The historical
+[closeout](day01-decision-ledger.md#closeout-verification-and-release) records 405
+passing tests and demo PASS. That measurement is a foundation baseline, not proof
+of unimplemented production capabilities or future source coverage.
 
-You should find four cases: web-01 and dev-01 AFFECTED/AFFECTED_CONFIRMED, web-02
-NOT_AFFECTED/NOT_AFFECTED, and legacy-01 UNKNOWN/MANUAL_INVESTIGATION. The selected
-run stores one vulnerability, six assets, twelve components, four cases, twelve
-CaseEvents, and eleven Evidence records. Four evidence records come from
-vulnerability/enrichment sources, six from inventory, and one from the denial probe.
+## Appendix C. Current limitations and documentation discrepancies
 
-The command deliberately attempts the prohibited approval transition on a stored
-case. It verifies state/history are unchanged and saves a SYSTEM observation of
-the attempt. This explicit demo probe is not a generic denied-operation log.
+The fixtures implement source-like subsets, not full live CVE/KEV/EPSS/vendor feeds.
+They use stable IDs and logical observation times. Claims retain parsed source
+content; exact fixture bytes are hashed and retained in the checkout. There is no
+production raw-payload store, freshness/authenticity policy, scheduler, or generic
+refresh/reconciliation. One optional KEV and one optional EPSS slot do not provide
+complete multi-source or time-series history.
 
-Verification runs before commit and through a separate transaction after commit.
-Only then can the CLI print:
+Historical ADRs describe the implementation at their decision point. ADR-006
+replaces ADR-005's temporary NEW state, ADR-008 adds restricted comparison beyond
+ADR-003's initial representation-only model, ADR-011 supersedes ADR-010's offline-only
+demo, and ADR-012 adds assessment revalidation/nonblank attribution. Read those
+changes as a decision sequence, not simultaneous contradictory specifications.
 
-```text
-BLOCKED: AFFECTED_CONFIRMED -> APPROVED (state-transition policy)
-DAY-1 ACCEPTANCE: PASS
-```
+Two source docstrings still contain outdated deferral language:
 
-If a write fails before commit, the outer transaction rolls back. If readback fails
-after commit, the command fails without PASS but the committed records remain
-inspectable. Repeating an unchanged demo must leave the same cases and histories.
-The separate `uv run python lab/demo.py` previews all fixtures without persistence;
-it does not establish that durable acceptance result.
+| Location | Stale wording versus current implementation |
+| --- | --- |
+| `workflow.transitions.transition_case` | Calls database compare-and-set/atomic event persistence future boundaries. The pure function remains side-effect free, but Repositories already implements those persistence boundaries. |
+| `domain.case.VulnerabilityCase` | Calls evidence existence/suitability a future application/persistence responsibility. Existence is already checked in assessment/repositories; source suitability remains deferred. |
 
-## Reason about changes before running them
+These comment discrepancies remain in source because this task changes documentation
+only. The guide follows executable behaviour and the later ADRs. No architectural
+reversal is introduced. The [security review](day01-security-review.md) remains the
+reference for source trust, authenticated caller authority, action-bound approvals,
+mutation denial, external-effect idempotency, and stronger audit/recovery work.
 
-Use these as maintenance exercises. Identify which part of the argument changes,
-then locate the enforcing function. The named tests show the expected behaviour.
+## Reconstruct the architecture
 
-| Change | What happens and why | Regression reference |
-| --- | --- | --- |
-| web-01 reports `1.4.0-rc.1` | UNKNOWN: the version step lacks supported prerelease ordering | `test_unsupported_release_syntax_is_not_ordered` in [version tests](../tests/matching/test_version_matcher.py) |
-| web-02 loses its completeness claim | UNKNOWN: exclusions no longer justify a whole-asset negative | `test_missing_completeness_never_turns_exclusion_into_unaffected` in [assessment tests](../tests/application/test_assessment.py) |
-| Product identifiers contradict each other | UNKNOWN: identity is unresolved before version reasoning begins | `test_conflicting_purl_and_cpe_cannot_be_resolved_by_identifier_priority` in [product tests](../tests/matching/test_product_matcher.py) |
-| web-01 receives web-02's components | Rejected: findings cannot be transferred across asset ownership | `test_foreign_components_cannot_determine_another_assets_affectedness` in [security tests](../tests/security/test_day01_boundaries.py) |
-| Event insertion fails after a case update | Both writes roll back: state cannot outrun its history | `test_event_insert_failure_rolls_back_state_even_if_caller_handles_error` in [persistence tests](../tests/integration/test_persistence.py) |
-| Changed vulnerability content is saved under an existing identity | RepositoryConflict: refresh requires explicit reconciliation | `test_conflicting_replay_does_not_overwrite_source_snapshot` in [persistence tests](../tests/integration/test_persistence.py) |
+Close this guide and work through four tasks:
 
-The [acceptance harness](../tests/acceptance/test_day01.py) protects the complete
-argument across layers: affected with evidence, fixed with complete inventory,
-unknown/investigation, observable illegal-transition denial, missing provenance
-rejection, process-restart durability, exact replay, and independent asset outcomes.
-It uses real PostgreSQL. Unit tests alone cannot prove commit or restart behaviour.
+1. Draw the CLI, application coordinator, source adapters, rules, repository and
+   PostgreSQL. Explain which component owns order, legality, and durable state.
+2. Trace V × A from source claims through component findings to C and its events.
+   Identify the exact point where a plan becomes committed and how readback proves it.
+3. Diagnose web-02 becoming UNKNOWN after losing completeness, then distinguish an
+   audit-insert rollback from a failed post-commit verification. Locate the enforcing
+   functions and regression tests.
+4. Place a new live vendor adapter and an advisory AI mapping proposal in the system.
+   Explain the new work required without giving either direct case or production
+   authority.
 
-From the configured local test database, run
-`uv run --env-file .env --locked pytest` for all groups. The historical
-[Day 1 closeout](day01-decision-ledger.md#closeout-verification-and-release) records
-405 passing tests and demo PASS. Acceptance must fail missing database configuration
-rather than present skipped durability checks as readiness.
-
-## Place future AI assistance inside this model
-
-A model could help interpret a vendor paragraph or propose a product mapping.
-Ask which of our three questions that output addresses. It may help explain what
-a source seems to report. It does not establish that the source is correct, prove
-which release an asset runs, or grant permission to change production.
-
-For example, a model proposing “fixed in 2.0.0” must point to supporting source
-material. A future adapter/application operation must validate that mapping under
-explicit rules and preserve its attribution before deterministic assessment can
-use it. Valid JSON and an evidence-shaped UUID are not sufficient. Day 1 has no
-model-proposal API or general assessment-update command.
-
-An orchestrator can coordinate calls to application operations. It must not own
-authoritative cases in its checkpoints or give a model raw database write access.
-Future production changes also need authenticated human authority, approval bound
-to an exact immutable action, constrained/default-deny tools, a shared mutation kill
-switch, independent verification, and rollback. Those services are not implemented.
-
-This is the value of the separation: better models can assist interpretation while
-the system retains explicit evidence, reproducible assessment, and controlled work.
-Read the [security review](day01-security-review.md) and [Day 2 handoff](day02-handoff.md)
-before expanding that authority.
-
-## Keep the design boundaries visible
-
-The [decision ledger](day01-decision-ledger.md) records alternatives, trade-offs,
-confidence, reversal cost, and reconsideration triggers. This map connects its
-reasoning to the objects we have just followed:
-
-| Boundary | Why it is separate; accepted cost | Reconsider when |
-| --- | --- | --- |
-| [Evidence](../src/vulnops/domain/evidence.py) | Attribution survives reinterpretation; more IDs/references replace duplicated source material | Retention or recurring claim structures need stronger contracts; D03/D26 |
-| [Vulnerability, AffectedProduct, ProductIdentity, VersionConstraint](../src/vulnops/domain/vulnerability.py) | Shared source language keeps product, ranges, and provenance together; adapters maintain that mapping | Concrete source/ecosystem semantics need extension; D04/D05/D17 |
-| [Asset and InstalledComponent](../src/vulnops/domain/asset.py) | Enterprise context and installations change independently; extra records preserve ownership | Installation-specific remediation or additional measured context is needed; D16 |
-| [Matching and assessment](../src/vulnops/application/assessment.py) | Findings are testable without storage/execution; conservative rules create more investigation | Supported fixtures justify broader semantics or reviewed aggregation; D06/D11/D23 |
-| [Case](../src/vulnops/domain/case.py) | Per-asset work remains independent; more cases replace a misleading global CVE status | Separate installation remediation needs subrecords; D07 |
-| [State machine and CaseEvent](../src/vulnops/workflow/transitions.py) | Policy governs changes and events explain them; explicit gates restrict flexibility | Reviewed reopening/exception policy or stronger audit is required; D08/D10/D20 |
-| [Persistence](../src/vulnops/persistence/repositories.py) | Transactions and tenant scope provide durable authority; PostgreSQL operations and domain/ORM mapping add work | Measured query, scale, recovery, or reconciliation needs change; D09/D18–D21 |
-| [Source adapters](../src/vulnops/sources/base.py) | Sources change without teaching downstream logic their schemas; fixtures trade live realism for repeatability | Actual live retrieval and update requirements are specified; D12 |
-| [CLI and acceptance](../src/vulnops/cli.py) | A thin interface and capability tests expose behaviour; JSON and database tests add operator/testing effort | Authenticated collaboration needs a console, or new capabilities extend the contract; D13/D24/D25 |
-
-Evidence must not decide truth; canonical claims must not own enterprise workflow;
-components must not migrate silently between assets; matching must not grant
-approval; repositories must not invent conclusions; CLI handlers must not create
-a second policy. These responsibilities let engineers change one part without
-quietly changing the meaning of the others.
-
-[INV-01–INV-10](invariants.md) define what future work must preserve. An architectural
-reversal requires a new ADR; this guide explains the existing implementation.
-
-If you understand only ten things about Day 1, understand these:
-
-1. **Begin with the argument you need to support.** An advisory alone cannot tell
-   you whether an enterprise asset is affected.
-2. **Preserve the reports behind the argument.** Evidence records what was reported
-   and by whom, not guaranteed truth.
-3. **Translate without adding authority.** Canonical types make source claims usable;
-   they do not verify the source.
-4. **Establish identity before comparing versions.** Similar names and ambiguous
-   release strings do not support a safe exclusion.
-5. **Respect the scope of a finding.** One excluded component does not clear an asset.
-6. **Keep gaps visible.** UNKNOWN and inventory completeness affect what an asset
-   conclusion can legitimately claim.
-7. **Track each vulnerability/asset pair independently.** Shared CVE identity does
-   not imply shared assessment, progress, or verification.
-8. **Separate applicability from workflow progress.** A DISCOVERED case can already
-   have an AFFECTED assessment; progression still needs policy gates.
-9. **Commit the current state with its explanation.** Atomic case/event writes and
-   exact replay preserve a coherent account across crashes and retries.
-10. **Keep model assistance outside authority.** Better interpretation must still
-    pass evidence, assessment, lifecycle, and future production-control boundaries.
+Use the maps and source references to check your reconstruction. Being able to
+explain those connections, failures, and change locations is the learning goal;
+passing technical documentation checks alone cannot establish it.
